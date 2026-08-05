@@ -36,6 +36,7 @@ class StayConfig:
     transport_pause_duration_center_seconds: float = 2 * 60
     transport_pause_duration_softness_seconds: float = 60.0
     direction_alignment_softness_degrees: float = 35.0
+    semantic_context_points: int = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +134,15 @@ def _midpoint_time(left: datetime, right: datetime) -> datetime:
 def _segment_context(
     continuity: ContinuityResult,
     event_indices: Sequence[int],
-) -> tuple[int | None, int | None, bool, bool]:
+    context_points: int,
+) -> tuple[
+    int | None,
+    int | None,
+    tuple[int, ...],
+    tuple[int, ...],
+    bool,
+    bool,
+]:
     event_set = set(event_indices)
     for segment in continuity.segments:
         positions = [position for position, index in enumerate(segment) if index in event_set]
@@ -146,10 +155,12 @@ def _segment_context(
         return (
             previous_index,
             next_index,
+            tuple(segment[max(0, first_position - context_points) : first_position]),
+            tuple(segment[last_position + 1 : last_position + 1 + context_points]),
             first_position == 0,
             last_position == len(segment) - 1,
         )
-    return None, None, True, True
+    return None, None, (), (), True, True
 
 
 def _approach_departure_alignment(
@@ -252,9 +263,14 @@ def detect_stays(
             adaptive_scale,
             effective_point_count,
         ) = _weighted_centroid_and_radius(points, assessments, indices, config)
-        previous_index, next_index, open_start, open_end = _segment_context(
-            continuity, indices
-        )
+        (
+            previous_index,
+            next_index,
+            previous_context,
+            next_context,
+            open_start,
+            open_end,
+        ) = _segment_context(continuity, indices, config.semantic_context_points)
         possible_started_at = (
             _midpoint_time(points[previous_index].recorded_at, points[indices[0]].recorded_at)
             if previous_index is not None
@@ -276,13 +292,12 @@ def detect_stays(
         direction_alignment = _approach_departure_alignment(
             points, indices, previous_index, next_index, config
         )
-        moving_before = (
-            previous_index is not None
-            and motion.state_by_point[previous_index] == MotionState.MOVING
+        moving_before = any(
+            motion.state_by_point[index] == MotionState.MOVING
+            for index in previous_context
         )
-        moving_after = (
-            next_index is not None
-            and motion.state_by_point[next_index] == MotionState.MOVING
+        moving_after = any(
+            motion.state_by_point[index] == MotionState.MOVING for index in next_context
         )
         boundary_completeness = max(
             0.0,

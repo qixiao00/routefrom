@@ -6,6 +6,10 @@ from typing import Sequence
 from routefrom_pipeline.continuity import (
     ContinuityConfig,
     ContinuityResult,
+    GapConfig,
+    InferredConnection,
+    ObservationGap,
+    build_observation_gaps,
     select_continuity,
 )
 from routefrom_pipeline.motion import MotionConfig, MotionResult, infer_motion
@@ -18,8 +22,9 @@ from routefrom_pipeline.quality import (
     build_point_features,
 )
 from routefrom_pipeline.stays import StayConfig, StayResult, detect_stays
+from routefrom_pipeline.trips import TripConfig, TripResult, segment_trips
 
-ALGORITHM_VERSION = "quality-continuity-motion-stays-v1"
+ALGORITHM_VERSION = "quality-continuity-motion-stays-trips-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,8 +32,10 @@ class ProcessingConfig:
     interval_window: int = 6
     anomaly: AnomalyConfig = AnomalyConfig()
     continuity: ContinuityConfig = ContinuityConfig()
+    gaps: GapConfig = GapConfig()
     motion: MotionConfig = MotionConfig()
     stays: StayConfig = StayConfig()
+    trips: TripConfig = TripConfig()
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +46,10 @@ class ProcessedTrace:
     assessments: tuple[PointAssessment, ...]
     continuity: ContinuityResult
     motion: MotionResult
+    observation_gaps: tuple[ObservationGap, ...]
+    inferred_connections: tuple[InferredConnection, ...]
     stays: StayResult
+    trips: TripResult
 
 
 def process_trace(
@@ -80,12 +90,28 @@ def process_trace(
         continuity,
         config=config.motion,
     )
+    observation_gaps, inferred_connections = build_observation_gaps(
+        normalized_points,
+        assessments,
+        continuity,
+        motion,
+        config=config.gaps,
+    )
     stays = detect_stays(
         normalized_points,
         assessments,
         continuity,
         motion,
         config=config.stays,
+    )
+    trips = segment_trips(
+        normalized_points,
+        continuity,
+        motion,
+        stays,
+        observation_gaps,
+        inferred_connections,
+        config=config.trips,
     )
     return ProcessedTrace(
         algorithm_version=ALGORITHM_VERSION,
@@ -94,5 +120,8 @@ def process_trace(
         assessments=assessments,
         continuity=continuity,
         motion=motion,
+        observation_gaps=observation_gaps,
+        inferred_connections=inferred_connections,
         stays=stays,
+        trips=trips,
     )

@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Sequence
 
-from routefrom_pipeline.continuity import ContinuityResult
+from routefrom_pipeline.continuity.graph import ContinuityResult
 from routefrom_pipeline.quality import LocatedObservation, PointAssessment, haversine_meters
 
 
