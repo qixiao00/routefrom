@@ -24,8 +24,13 @@ from routefrom_pipeline.quality import (
 )
 from routefrom_pipeline.stays import StayConfig, StayResult, detect_stays
 from routefrom_pipeline.trips import TripConfig, TripResult, segment_trips
+from routefrom_pipeline.trajectory import (
+    TrajectoryConfig,
+    TrajectoryRepresentation,
+    build_trajectory_representation,
+)
 
-ALGORITHM_VERSION = "quality-continuity-motion-stays-trips-modes-v1"
+ALGORITHM_VERSION = "quality-continuity-motion-stays-trips-modes-trajectory-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +43,7 @@ class ProcessingConfig:
     stays: StayConfig = StayConfig()
     trips: TripConfig = TripConfig()
     modes: ModeConfig = ModeConfig()
+    trajectory: TrajectoryConfig = TrajectoryConfig()
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +59,7 @@ class ProcessedTrace:
     stays: StayResult
     trips: TripResult
     modes: ModeResult
+    trajectory: TrajectoryRepresentation
 
 
 def process_trace(
@@ -123,6 +130,14 @@ def process_trace(
         trips,
         config=config.modes,
     )
+    trajectory = build_trajectory_representation(
+        normalized_points,
+        continuity,
+        stays,
+        trips,
+        modes,
+        config=config.trajectory,
+    )
     return ProcessedTrace(
         algorithm_version=ALGORITHM_VERSION,
         points=normalized_points,
@@ -135,4 +150,5 @@ def process_trace(
         stays=stays,
         trips=trips,
         modes=modes,
+        trajectory=trajectory,
     )

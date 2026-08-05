@@ -29,6 +29,66 @@
         }
       }
     },
+    "trajectoryDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pixelToleranceMeters": { "type": "number", "minimum": 0 },
+        "vertexBudget": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "trajectoryVertex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordedAt", "coordinates", "isInterpolated", "anchorReasons"],
+      "properties": {
+        "recordedAt": { "$ref": "#/$defs/instant" },
+        "coordinates": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "number", "minimum": -180, "maximum": 180 },
+            { "type": "number", "minimum": -90, "maximum": 90 }
+          ],
+          "items": false
+        },
+        "sourcePointIndex": {
+          "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 0 }]
+        },
+        "importanceMeters": {
+          "oneOf": [{ "type": "null" }, { "type": "number", "minimum": 0 }]
+        },
+        "isInterpolated": { "type": "boolean" },
+        "anchorReasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "trajectoryPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selectionRangeIndex",
+        "segmentIndex",
+        "selectedRange",
+        "variantKind",
+        "isInferred",
+        "vertices"
+      ],
+      "properties": {
+        "selectionRangeIndex": { "type": "integer", "minimum": 0 },
+        "segmentIndex": { "type": "integer", "minimum": 0 },
+        "selectedRange": { "$ref": "#/$defs/timeRange" },
+        "variantKind": { "enum": ["cleaned_gps", "smoothed_gps", "map_matched"] },
+        "isInferred": { "const": false },
+        "appliedImportanceThresholdMeters": { "type": "number", "minimum": 0 },
+        "vertices": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/trajectoryVertex" }
+        }
+      }
+    },
     "entityKind": {
       "enum": ["point", "gap", "visit", "trip", "leg", "place"]
     },
@@ -45,6 +105,7 @@
           ]
         },
         "timeSelection": { "$ref": "#/$defs/timeSelection" },
+        "trajectoryDetail": { "$ref": "#/$defs/trajectoryDetail" },
         "spatialFilter": { "type": "object" },
         "entityKinds": {
           "type": "array",
@@ -112,6 +173,10 @@
     "timelineEvents": {
       "type": "array",
       "items": { "$ref": "#/$defs/timelineEvent" }
+    },
+    "trajectoryPaths": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/trajectoryPath" }
     },
     "summary": { "$ref": "#/$defs/selectionSummary" }
   }
