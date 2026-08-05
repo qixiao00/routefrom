@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://routefrom.local/contracts/workspace.schema.json",
+  "title": "RouteFrom workspace contracts",
+  "type": "object",
+  "$defs": {
+    "instant": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "timeRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "$ref": "#/$defs/instant" },
+        "end": { "$ref": "#/$defs/instant" }
+      }
+    },
+    "timeSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timezone", "ranges"],
+      "properties": {
+        "timezone": { "type": "string", "minLength": 1 },
+        "ranges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/timeRange" }
+        }
+      }
+    },
+    "entityKind": {
+      "enum": ["point", "gap", "visit", "trip", "leg", "place"]
+    },
+    "workspaceQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["datasetId", "processingRunId", "timeSelection"],
+      "properties": {
+        "datasetId": { "type": "string", "format": "uuid" },
+        "processingRunId": {
+          "oneOf": [
+            { "const": "active" },
+            { "type": "string", "format": "uuid" }
+          ]
+        },
+        "timeSelection": { "$ref": "#/$defs/timeSelection" },
+        "spatialFilter": { "type": "object" },
+        "entityKinds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/entityKind" }
+        }
+      }
+    },
+    "workspaceSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "logicalId", "source"],
+      "properties": {
+        "kind": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/entityKind" }]
+        },
+        "logicalId": {
+          "oneOf": [{ "type": "null" }, { "type": "string", "format": "uuid" }]
+        },
+        "source": {
+          "enum": [null, "map", "timeline", "search", "inspector"]
+        }
+      }
+    },
+    "timelineEvent": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["logicalId", "processingRunId", "kind", "observedRange", "confidence"],
+      "properties": {
+        "logicalId": { "type": "string", "format": "uuid" },
+        "processingRunId": { "type": "string", "format": "uuid" },
+        "kind": { "$ref": "#/$defs/entityKind" },
+        "observedRange": { "$ref": "#/$defs/timeRange" },
+        "possibleRange": { "$ref": "#/$defs/timeRange" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "qualityState": { "enum": ["valid", "suspect", "excluded", "unknown"] }
+      }
+    },
+    "selectionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observedDistanceMeters",
+        "movingDurationSeconds",
+        "confirmedStayDurationSeconds",
+        "unknownDurationSeconds",
+        "suspectPointCount",
+        "gapCount",
+        "inferredConnectionCount"
+      ],
+      "properties": {
+        "observedDistanceMeters": { "type": "number", "minimum": 0 },
+        "movingDurationSeconds": { "type": "number", "minimum": 0 },
+        "confirmedStayDurationSeconds": { "type": "number", "minimum": 0 },
+        "unknownDurationSeconds": { "type": "number", "minimum": 0 },
+        "suspectPointCount": { "type": "integer", "minimum": 0 },
+        "gapCount": { "type": "integer", "minimum": 0 },
+        "inferredConnectionCount": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "properties": {
+    "query": { "$ref": "#/$defs/workspaceQuery" },
+    "selection": { "$ref": "#/$defs/workspaceSelection" },
+    "timelineEvents": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/timelineEvent" }
+    },
+    "summary": { "$ref": "#/$defs/selectionSummary" }
+  }
+}

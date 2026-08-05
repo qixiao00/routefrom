@@ -1,0 +1,389 @@
+{
+  "meta": {
+    "name": "RouteFrom Temporal Observatory",
+    "description": "Exploratory, unapproved design draft for a quiet personal spatiotemporal observatory. It is not a finalized visual style, page architecture, or API contract.",
+    "source_references": [
+      "RouteFrom current 1440px workspace screenshot",
+      "RouteFrom current 1180px compact workspace screenshot",
+      "docs/FOOTPRINT_PROCESSING_ALGORITHM.md",
+      "db/FOOTPRINT_DATA_MODEL.md"
+    ],
+    "created_at": "2026-08-05T00:00:00+08:00"
+  },
+  "design_system": {
+    "color": {
+      "palette_type": "split-complementary dark mineral",
+      "primary": {
+        "hex": "#63E6C5",
+        "role": "Observed trajectory, active time, focus and primary action"
+      },
+      "secondary": {
+        "hex": "#D9A657",
+        "role": "Confirmed stays, places and warm temporal anchors"
+      },
+      "accent": {
+        "hex": "#72A7FF",
+        "role": "Secondary time slices, information and comparison state"
+      },
+      "neutral": {
+        "scale": {
+          "0": "#F3F7F5",
+          "50": "#DCE4E0",
+          "100": "#C5CECA",
+          "200": "#A4AFAB",
+          "300": "#7F8B87",
+          "400": "#606B67",
+          "500": "#48524F",
+          "600": "#343D3A",
+          "700": "#242B29",
+          "800": "#171D1B",
+          "900": "#101513",
+          "950": "#0B0F0E",
+          "1000": "#070A09"
+        },
+        "usage": "Near-black map and chrome, mineral-gray structure, high-value text reserved for selected facts"
+      },
+      "semantic": {
+        "success": "#63E6C5",
+        "warning": "#E5B566",
+        "error": "#FF6B6E",
+        "info": "#72A7FF"
+      },
+      "surface": {
+        "background": "#080B0E",
+        "card": "#10151A",
+        "elevated": "#171D22"
+      },
+      "contrast_strategy": "High-contrast selected facts over subtle layered chrome; semantic color never carries meaning without shape or label",
+      "domain_semantics": {
+        "observed": "#63E6C5",
+        "stay": "#D9A657",
+        "suspect": "#E5B566",
+        "unknown": "#77827E",
+        "excluded": "#FF6B6E",
+        "inferred": "#A3AEA9",
+        "open_boundary": "#72A7FF"
+      }
+    },
+    "typography": {
+      "type_scale": {
+        "display": {
+          "size": "36px",
+          "weight": "520",
+          "line_height": "1.05",
+          "tracking": "-0.035em"
+        },
+        "heading_1": {
+          "size": "22px",
+          "weight": "560",
+          "line_height": "1.18",
+          "tracking": "-0.025em"
+        },
+        "heading_2": {
+          "size": "17px",
+          "weight": "560",
+          "line_height": "1.25",
+          "tracking": "-0.018em"
+        },
+        "heading_3": {
+          "size": "13px",
+          "weight": "600",
+          "line_height": "1.3",
+          "tracking": "-0.008em"
+        },
+        "body": {
+          "size": "13px",
+          "weight": "430",
+          "line_height": "1.55",
+          "tracking": "0"
+        },
+        "body_small": {
+          "size": "11px",
+          "weight": "440",
+          "line_height": "1.45",
+          "tracking": "0.006em"
+        },
+        "caption": {
+          "size": "10px",
+          "weight": "480",
+          "line_height": "1.35",
+          "tracking": "0.018em"
+        },
+        "overline": {
+          "size": "9px",
+          "weight": "650",
+          "line_height": "1.2",
+          "tracking": "0.14em"
+        }
+      },
+      "font_families": {
+        "heading": "IBM Plex Sans Condensed, Source Han Sans SC, Microsoft YaHei UI, sans-serif",
+        "body": "IBM Plex Sans, Source Han Sans SC, Microsoft YaHei UI, sans-serif",
+        "mono": "IBM Plex Mono, SFMono-Regular, Consolas, monospace"
+      },
+      "font_style_notes": "A field-instrument pairing: condensed headings conserve horizontal space, calm humanist body copy explains uncertainty, monospace is limited to coordinates, instants and algorithm evidence"
+    },
+    "spacing": {
+      "base_unit": "4px",
+      "scale": ["2px", "4px", "6px", "8px", "12px", "16px", "20px", "24px", "32px", "40px", "48px"],
+      "content_density": "comfortable-compact",
+      "section_rhythm": "8px inside controls, 16px inside groups, 24px between semantic regions; map retains the largest uninterrupted negative space"
+    },
+    "layout": {
+      "grid_system": "Resizable instrument dock around a dominant map field",
+      "max_content_width": "none; full viewport application shell",
+      "columns": "48px tool rail + 288px layer/time dock + fluid map + 320px contextual inspector",
+      "gutter": "1px structural dividers, 12px floating-map offsets, 16px panel padding",
+      "breakpoints": {
+        "wide": "1440px and above: both side docks visible",
+        "desktop": "1180px–1439px: inspector becomes an overlay drawer with persistent reopen affordance",
+        "compact": "960px–1179px: left dock collapses to rail-triggered overlay; timeline remains resizable",
+        "mobile_future": "below 960px: map-first route with bottom sheets; not a squeezed desktop grid"
+      },
+      "alignment_tendency": "Strict instrument grid with controlled asymmetry in floating map controls and inspector cards"
+    },
+    "shape": {
+      "border_radius": {
+        "small": "6px",
+        "medium": "10px",
+        "large": "14px",
+        "pill": "999px"
+      },
+      "border_usage": "Subtle 1px mineral borders define interactive surfaces; structural docks use hairline dividers; selected ranges use double cues",
+      "divider_style": "1px rgba(220,228,224,0.08), brighter only at active resize boundaries"
+    },
+    "elevation": {
+      "shadow_style": "Low, wide and dark with restrained mineral glow for focus",
+      "levels": {
+        "low": "0 1px 0 rgba(255,255,255,0.025), 0 6px 18px rgba(0,0,0,0.18)",
+        "medium": "0 14px 38px rgba(0,0,0,0.34), 0 0 0 1px rgba(255,255,255,0.045)",
+        "high": "0 24px 70px rgba(0,0,0,0.48), 0 0 0 1px rgba(99,230,197,0.12)"
+      },
+      "depth_cues": "Layered near-black values, blur on floating controls, overlap above the map and selective mint edge light"
+    },
+    "iconography": {
+      "style": "Rounded geometric outline with state expressed by enclosure and fill",
+      "stroke_weight": "1.6px",
+      "size_scale": ["12px", "14px", "16px", "18px", "20px"],
+      "preferred_set": "Lucide for chrome; custom SVG glyphs only for temporal strata and confidence states"
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "duration_scale": {
+        "micro": "110ms",
+        "normal": "220ms",
+        "macro": "420ms"
+      },
+      "entrance_pattern": "Docks settle 8px into place while the map is already interactive; no theatrical splash screen",
+      "exit_pattern": "Selected details compress toward their map or timeline anchor before fading",
+      "philosophy": "Functional continuity: movement explains spatial and temporal causality, never decorates high-frequency playback"
+    },
+    "components": {
+      "button_style": "Quiet ghost or tonal buttons, 32–36px high, one-pixel edge, explicit focus ring, active state uses a shallow mineral fill rather than a luminous CTA block",
+      "input_style": "Dark inset fields with persistent labels, mono treatment for time values, visible keyboard focus and no placeholder-only meaning",
+      "card_style": "Cards are reserved for semantic objects and evidence; most navigation remains borderless lists to avoid dashboard-card repetition",
+      "navigation_pattern": "Tool rail changes the left dock; command palette provides cross-domain navigation; inspector is selection-driven rather than a permanent settings column",
+      "modal_style": "Anchored popovers for local edits, centered command palette for global actions, bottom temporal composer for complex multi-range editing",
+      "list_style": "Compact rows with a semantic rail, primary label, evidence line and trailing state; selection changes background and left rail together",
+      "component_notes": "Temporal range chips have grab handles and set-operation affordances. Confidence is shown by label plus a calibrated meter, not vague colored badges. Unknown periods are cut-outs; inferred paths are dashed; excluded points use crossed glyphs. Resize handles are keyboard operable. No shadcn visual defaults."
+    }
+  },
+  "design_style": {
+    "aesthetic": {
+      "mood": ["observant", "quiet", "precise", "personal", "exploratory"],
+      "visual_metaphor": "A nocturnal field observatory reading layers of personal time like a geological core sample",
+      "era_influence": "Contemporary scientific instruments with restrained cartographic editorialism",
+      "genre": "Immersive personal spatial analysis workbench",
+      "personality_traits": ["meticulous", "non-judgmental", "calm under uncertainty", "curious", "trustworthy"],
+      "adjectives": ["mineral", "layered", "legible", "tactile", "evidence-aware"]
+    },
+    "visual_language": {
+      "complexity": "Rich data semantics inside a visually restrained shell",
+      "ornamentation": "Subtle cartographic glow and temporal texture only where they encode state",
+      "whitespace_usage": "The map is breathing room; panels are dense but rhythmically grouped",
+      "visual_weight_distribution": "Map dominates; timeline is the signature analytical surface; side docks recede until an entity is selected",
+      "focal_strategy": "A shared selected entity and time cursor create one cross-surface focus",
+      "contrast_level": "Moderate global contrast with high local contrast for selected facts",
+      "texture_usage": "Very faint map grain and scanline-free temporal density, never decorative noise over text"
+    },
+    "composition": {
+      "hierarchy_method": "Spatial scale, semantic rails, type compression and selective color",
+      "balance_type": "Asymmetric instrument layout balanced by a dominant central map",
+      "flow_direction": "Dataset and time intent from left to map, evidence from map/time to the right inspector",
+      "grouping_strategy": "Group by user task and epistemic state, not by database table",
+      "negative_space_role": "Preserves geographic immersion and makes sparse personal moments feel intentional"
+    },
+    "imagery": {
+      "photo_treatment": "No stock photography; optional place memories use low-saturation edge-to-edge crops with metadata overlays",
+      "illustration_style": "No generic illustrations; use cartographic contours, calibrated diagrams and trajectory glyphs",
+      "graphic_elements": "Temporal strata, covariance halos, route strokes, uncertainty cut-outs and subtle contour rings",
+      "pattern_usage": "Dashed rhythm exclusively signals inference; sparse diagonal hatch signals excluded or unavailable data",
+      "image_shape": "Map-native geometry and restrained 10–14px clipped media when personal imagery exists"
+    },
+    "interaction_feel": {
+      "feedback_style": "Immediate local preview, then quiet confirmation when a normalized time selection or manual correction is committed",
+      "hover_behavior": "One level of tonal lift plus cross-highlight on map and timeline; no scale bounce",
+      "transition_personality": "Smooth glide with crisp arrival",
+      "loading_style": "Progressive spatial detail with stable skeleton geometry and explicit processing stage labels",
+      "microinteraction_density": "Low-to-moderate; concentrated on time editing, cross-highlighting, resizing and correction confidence"
+    },
+    "brand_voice_in_ui": {
+      "tone": "Clear, calm and evidence-aware",
+      "formality": "Conversational professional Chinese with precise time and uncertainty terms",
+      "cta_style": "Direct verbs such as 创建切片、聚焦、保存修正、发布结果",
+      "empty_state_approach": "Explain what data is absent and offer the next meaningful action",
+      "error_tone": "State what failed, which processing stage was affected and what can be retried; never apologize vaguely"
+    }
+  },
+  "visual_effects": {
+    "overview": {
+      "effect_intensity": "moderate",
+      "performance_tier": "heavy",
+      "fallback_strategy": "Keep MapLibre and static vector/Canvas marks, reduce glow and animation, disable animated density and use simplified trajectories when reduced motion or low hardware concurrency is detected",
+      "primary_technology": "MapLibre GL plus deck.gl WebGL for the map, Canvas 2D/WebGL for the temporal strata, Motion for dock transitions"
+    },
+    "background_effects": {
+      "type": "noise-field",
+      "description": "A nearly imperceptible mineral grain confined to empty map and floating chrome, never over labels",
+      "technology": "CSS/SVG noise texture",
+      "params": {
+        "color_palette": ["#080B0E", "#10151A", "#63E6C5"],
+        "speed": "static or 30s ambient drift",
+        "density": "very low",
+        "opacity": "0.018",
+        "blend_mode": "soft-light"
+      }
+    },
+    "particle_systems": {
+      "enabled": false,
+      "type": "none",
+      "description": "Particles would confuse data points and are intentionally absent",
+      "technology": "none",
+      "params": {
+        "count": 0,
+        "shape": "none",
+        "size_range": "0px",
+        "movement_pattern": "none",
+        "color_behavior": "none",
+        "interaction": "none",
+        "spawn_area": "none"
+      }
+    },
+    "3d_elements": {
+      "enabled": false,
+      "type": "none",
+      "description": "No decorative 3D scene; map pitch alone provides geographic depth",
+      "technology": "none",
+      "params": {
+        "renderer": "none",
+        "lighting": "none",
+        "camera": "MapLibre camera only",
+        "materials": "none",
+        "geometry": "none",
+        "post_processing": [],
+        "interaction_model": "none"
+      }
+    },
+    "shader_effects": {
+      "enabled": false,
+      "type": "none",
+      "description": "Custom shaders are deferred until a data-semantic need exists",
+      "technology": "none",
+      "params": {
+        "uniforms": {},
+        "vertex_manipulation": "none",
+        "fragment_output": "none",
+        "noise_type": "none",
+        "distortion": "none"
+      }
+    },
+    "scroll_effects": {
+      "parallax": {
+        "enabled": false,
+        "layers": 0,
+        "depth_range": "0",
+        "speed_curve": "none"
+      },
+      "scroll_triggered_animations": {
+        "enabled": false,
+        "trigger_points": [],
+        "animation_type": "none",
+        "scrub_behavior": "none"
+      },
+      "scroll_morphing": {
+        "enabled": false,
+        "description": "Application workspace uses local panels, not page scroll storytelling"
+      }
+    },
+    "text_effects": {
+      "type": "none",
+      "description": "Typography remains stable during analysis and playback",
+      "technology": "CSS",
+      "params": {
+        "split_strategy": "none",
+        "animation_per_unit": "none",
+        "stagger": "0ms",
+        "effect_style": "none"
+      }
+    },
+    "cursor_effects": {
+      "enabled": false,
+      "type": "none",
+      "description": "Native cursor semantics are retained for dense analytical work",
+      "params": {
+        "shape": "native",
+        "size": "native",
+        "blend_mode": "normal",
+        "trail": "none",
+        "interaction_zone": "none"
+      }
+    },
+    "image_effects": {
+      "type": "none",
+      "description": "Personal place imagery, when present, uses restrained static treatment",
+      "technology": "CSS",
+      "params": {
+        "filter_pipeline": "saturate(0.78) contrast(1.04)",
+        "hover_transform": "none",
+        "reveal_animation": "120ms opacity",
+        "distortion_type": "none"
+      }
+    },
+    "glassmorphism_neumorphism": {
+      "enabled": true,
+      "style": "frosted-layers",
+      "params": {
+        "blur_radius": "16px",
+        "transparency": "0.84",
+        "border_treatment": "1px rgba(220,228,224,0.10)",
+        "shadow_type": "wide dark ambient with optional 1px mint focus glow",
+        "light_source_angle": "top-left, extremely subtle"
+      }
+    },
+    "canvas_drawings": {
+      "enabled": true,
+      "type": "data-visualization",
+      "description": "The temporal strata render observed movement, stays, unknown gaps, inferred connections and multi-range handles as one zoomable field",
+      "technology": "Canvas 2D initially, deck.gl/WebGL when event density requires",
+      "params": {
+        "draw_method": "DPR-aware batched paths and rectangles with semantic hit-test index",
+        "animation_loop": "requestAnimationFrame only during playback, drag or transition",
+        "color_scheme": ["#63E6C5", "#D9A657", "#77827E", "#A3AEA9", "#FF6B6E"],
+        "responsiveness": "ResizeObserver and stable virtual time scale",
+        "interaction": "brush, resize, split, subtract, hover cross-highlight and keyboard nudge"
+      }
+    },
+    "svg_animations": {
+      "enabled": true,
+      "type": "path-draw",
+      "description": "Only newly selected or corrected route fragments receive a brief path confirmation draw",
+      "params": {
+        "animation_method": "stroke-dashoffset with Motion orchestration",
+        "path_morphing": "disabled",
+        "stroke_animation": "single 220ms confirmation pass",
+        "filter_effects": "subtle mint glow, disabled under reduced motion"
+      }
+    },
+    "composite_notes": "The signature temporal strata is both an analytical control and a visual identity. The map remains visually quiet so temporal selections and epistemic states read clearly. GPU capacity is spent on real trajectory density, filtering and playback rather than decorative effects. All enabled effects degrade to static CSS/Canvas without losing observed-versus-inferred semantics."
+  }
+}

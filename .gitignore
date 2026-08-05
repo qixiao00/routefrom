@@ -21,6 +21,16 @@ node_modules/
 dist/
 .next/
 .vinext/
+*.tsbuildinfo
+.pnpm-store/
+
+# Python processor artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
 
 # Local database/runtime files
 *.db
@@ -28,4 +38,3 @@ dist/
 *.db-wal
 *.sqlite
 *.sqlite3
-

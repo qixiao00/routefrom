@@ -1,13 +1,10 @@
-# Footprint data workspace
+# 足迹数据工作区
 
-This directory contains private source data and local processing artifacts.
-Its contents are intentionally excluded from Git.
+此目录用于存放私有原始数据和本地处理产物，其内容默认不纳入 Git 版本控制。
 
-- `raw/`: immutable source uploads. Never edit files in place.
-- `working/`: temporary files produced during an import.
-- `generated/`: reusable map caches, simplified tracks, and summaries.
-- `reports/`: import validation and data-quality reports.
+- `raw/`：不可修改的原始上传文件，禁止直接编辑其中的文件。
+- `working/`：一次导入过程中产生的临时文件。
+- `generated/`：可重复使用的地图缓存、抽稀轨迹和统计摘要。
+- `reports/`：导入校验报告和数据质量报告。
 
-Every import should use a unique dataset ID. Derived data must be reproducible
-from the original file and versioned processing code.
-
+每次导入都应使用唯一的数据集 ID。所有派生数据都必须能够通过原始文件和带版本号的处理代码重新生成。

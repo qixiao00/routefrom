@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "routefrom-pipeline"
+version = "0.1.0"
+description = "Versioned and explainable personal trajectory processing for RouteFrom"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+algorithm = [
+  "numpy>=2.0",
+  "scipy>=1.14",
+  "shapely>=2.0",
+  "pyproj>=3.7"
+]
+database = ["psycopg[binary]>=3.2"]
+dev = ["pytest>=8.3", "ruff>=0.9", "mypy>=1.14"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["routefrom_pipeline*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
