@@ -17,6 +17,9 @@ importers:
       '@fontsource/ibm-plex-sans-condensed':
         specifier: 5.3.0
         version: 5.3.0
+      '@neondatabase/serverless':
+        specifier: ^1.1.0
+        version: 1.1.0
       lucide-react:
         specifier: 1.28.0
         version: 1.28.0(react@19.2.8)
@@ -278,6 +281,10 @@ packages:
 
   '@maplibre/vt-pbf@4.3.2':
     resolution: {integrity: sha512-j6p0AdjvAR19Z3XaCysle7A4ZSo08tYOzxD0Y9NQylwPAkwJJeYub5b2eVucdeDh7erhv69DahoLOevDRERRUw==}
+
+  '@neondatabase/serverless@1.1.0':
+    resolution: {integrity: sha512-r3ZZhRjEcfEdKIZnoB1RusNgvHuaBRqfCzV4Gi+5A9yUX0S4HTws/ASWqt13wL4y4I+0rqsWGdA2w7EQXHi3+Q==}
+    engines: {node: '>=19.0.0'}
 
   '@next/env@16.3.0':
     resolution: {integrity: sha512-o9r1S0BNiNreHP9Vs+Qnqd9kviDkJh8xIACY7UFZSmiGbbQRzPBBosvHzAU4TULHOIuOj/18RSsyz2qrREmIFw==}
@@ -994,6 +1001,8 @@ snapshots:
       '@mapbox/point-geometry': 1.1.0
       '@types/geojson': 7946.0.16
       pbf: 5.1.2
+
+  '@neondatabase/serverless@1.1.0': {}
 
   '@next/env@16.3.0': {}
 
