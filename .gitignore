@@ -1,0 +1,31 @@
+# Private footprint data and generated artifacts
+/data/raw/*
+/data/working/*
+/data/generated/*
+/data/reports/*
+
+# Keep directory documentation/placeholders
+!/data/raw/.gitkeep
+!/data/working/.gitkeep
+!/data/generated/.gitkeep
+!/data/reports/.gitkeep
+!/data/README.md
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Application build artifacts
+node_modules/
+dist/
+.next/
+.vinext/
+
+# Local database/runtime files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
