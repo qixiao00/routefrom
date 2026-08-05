@@ -21,6 +21,9 @@ class MotionState(StrEnum):
 class MotionConfig:
     context_radius_points: int = 4
     context_max_seconds: float = 5 * 60
+    context_spatial_floor_meters: float = 30.0
+    context_accuracy_multiplier: float = 3.0
+    context_spatial_cap_meters: float = 150.0
     accuracy_floor_meters: float = 5.0
     accuracy_cap_meters: float = 100.0
     stationary_speed_center_mps: float = 1.4
@@ -30,8 +33,8 @@ class MotionConfig:
     stationary_radius_floor_meters: float = 20.0
     stationary_accuracy_multiplier: float = 2.2
     stationary_radius_cap_meters: float = 120.0
-    direct_transition_penalty: float = 2.1
-    uncertain_transition_penalty: float = 0.75
+    direct_transition_penalty: float = 1.2
+    uncertain_transition_penalty: float = 0.5
     short_stationary_prior_seconds: float = 75.0
     short_stationary_exit_penalty: float = 2.0
     short_moving_prior_seconds: float = 20.0
@@ -126,11 +129,26 @@ def _context_indices(
     center_time = points[center_index].recorded_at
     start = max(0, position - config.context_radius_points)
     end = min(len(segment), position + config.context_radius_points + 1)
+    accuracy = points[center_index].horizontal_accuracy_meters
+    spatial_radius = min(
+        config.context_spatial_cap_meters,
+        max(
+            config.context_spatial_floor_meters,
+            (accuracy or config.accuracy_cap_meters) * config.context_accuracy_multiplier,
+        ),
+    )
     return tuple(
         index
         for index in segment[start:end]
         if abs((points[index].recorded_at - center_time).total_seconds())
         <= config.context_max_seconds
+        and haversine_meters(
+            points[center_index].wgs_latitude,
+            points[center_index].wgs_longitude,
+            points[index].wgs_latitude,
+            points[index].wgs_longitude,
+        )
+        <= spatial_radius
     )
 
 
@@ -219,8 +237,13 @@ def _build_evidence_for_segment(
                 (speed_for_emission - config.moving_speed_center_mps)
                 / config.moving_speed_softness_mps
             )
-        radius_probability = _sigmoid(
-            (adaptive_radius - (local_radius or 0.0)) / max(5.0, adaptive_radius * 0.35)
+        radius_probability = (
+            _sigmoid(
+                (adaptive_radius - (local_radius or 0.0))
+                / max(5.0, adaptive_radius * 0.35)
+            )
+            if len(context) >= 2
+            else 0.5
         )
         recorded_stationary_probability = (
             _sigmoid(

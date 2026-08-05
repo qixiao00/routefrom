@@ -13,6 +13,7 @@ from routefrom_pipeline.continuity import (
     select_continuity,
 )
 from routefrom_pipeline.motion import MotionConfig, MotionResult, infer_motion
+from routefrom_pipeline.modes import ModeConfig, ModeResult, infer_transport_modes
 from routefrom_pipeline.quality import (
     AnomalyConfig,
     LocatedObservation,
@@ -24,7 +25,7 @@ from routefrom_pipeline.quality import (
 from routefrom_pipeline.stays import StayConfig, StayResult, detect_stays
 from routefrom_pipeline.trips import TripConfig, TripResult, segment_trips
 
-ALGORITHM_VERSION = "quality-continuity-motion-stays-trips-v1"
+ALGORITHM_VERSION = "quality-continuity-motion-stays-trips-modes-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +37,7 @@ class ProcessingConfig:
     motion: MotionConfig = MotionConfig()
     stays: StayConfig = StayConfig()
     trips: TripConfig = TripConfig()
+    modes: ModeConfig = ModeConfig()
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +52,7 @@ class ProcessedTrace:
     inferred_connections: tuple[InferredConnection, ...]
     stays: StayResult
     trips: TripResult
+    modes: ModeResult
 
 
 def process_trace(
@@ -113,6 +116,13 @@ def process_trace(
         inferred_connections,
         config=config.trips,
     )
+    modes = infer_transport_modes(
+        normalized_points,
+        assessments,
+        stays,
+        trips,
+        config=config.modes,
+    )
     return ProcessedTrace(
         algorithm_version=ALGORITHM_VERSION,
         points=normalized_points,
@@ -124,4 +134,5 @@ def process_trace(
         inferred_connections=inferred_connections,
         stays=stays,
         trips=trips,
+        modes=modes,
     )
