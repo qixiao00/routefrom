@@ -17,7 +17,7 @@ algorithm = [
   "pyproj>=3.7"
 ]
 database = ["psycopg[binary]>=3.2"]
-dev = ["pytest>=8.3", "ruff>=0.9", "mypy>=1.14"]
+dev = ["pytest>=8.3", "ruff>=0.9", "mypy>=1.14", "pglast>=7,<8"]
 
 [tool.setuptools.packages.find]
 where = ["."]
