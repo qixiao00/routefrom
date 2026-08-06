@@ -14,6 +14,7 @@ from routefrom_pipeline.continuity import (
 )
 from routefrom_pipeline.motion import MotionConfig, MotionResult, infer_motion
 from routefrom_pipeline.modes import ModeConfig, ModeResult, infer_transport_modes
+from routefrom_pipeline.places import PlaceConfig, PlaceResult, resolve_places
 from routefrom_pipeline.quality import (
     AnomalyConfig,
     LocatedObservation,
@@ -30,18 +31,20 @@ from routefrom_pipeline.trajectory import (
     build_trajectory_representation,
 )
 
-ALGORITHM_VERSION = "quality-continuity-motion-stays-trips-modes-trajectory-v1"
+ALGORITHM_VERSION = "quality-continuity-motion-stays-trips-places-modes-trajectory-v2"
 
 
 @dataclass(frozen=True, slots=True)
 class ProcessingConfig:
     interval_window: int = 6
+    timezone: str = "Asia/Shanghai"
     anomaly: AnomalyConfig = AnomalyConfig()
     continuity: ContinuityConfig = ContinuityConfig()
     gaps: GapConfig = GapConfig()
     motion: MotionConfig = MotionConfig()
     stays: StayConfig = StayConfig()
     trips: TripConfig = TripConfig()
+    places: PlaceConfig = PlaceConfig()
     modes: ModeConfig = ModeConfig()
     trajectory: TrajectoryConfig = TrajectoryConfig()
 
@@ -58,6 +61,7 @@ class ProcessedTrace:
     inferred_connections: tuple[InferredConnection, ...]
     stays: StayResult
     trips: TripResult
+    places: PlaceResult
     modes: ModeResult
     trajectory: TrajectoryRepresentation
 
@@ -123,6 +127,12 @@ def process_trace(
         inferred_connections,
         config=config.trips,
     )
+    places = resolve_places(
+        stays,
+        eligible_event_indices=trips.confirmed_visit_event_indices,
+        timezone=config.timezone,
+        config=config.places,
+    )
     modes = infer_transport_modes(
         normalized_points,
         assessments,
@@ -149,6 +159,7 @@ def process_trace(
         inferred_connections=inferred_connections,
         stays=stays,
         trips=trips,
+        places=places,
         modes=modes,
         trajectory=trajectory,
     )

@@ -11,7 +11,12 @@ from routefrom_pipeline.database import persist_processed_trace
 from routefrom_pipeline.model import NormalizedLocationPoint
 
 
-def point(index: int, *, longitude: float) -> NormalizedLocationPoint:
+def point(
+    index: int,
+    *,
+    longitude: float,
+    recorded_speed_mps: float = 8,
+) -> NormalizedLocationPoint:
     recorded_at = datetime(2026, 7, 1, tzinfo=UTC) + timedelta(seconds=index * 10)
     return NormalizedLocationPoint(
         source_row_number=index + 2,
@@ -30,8 +35,8 @@ def point(index: int, *, longitude: float) -> NormalizedLocationPoint:
         horizontal_accuracy_meters=8,
         source_vertical_accuracy=None,
         vertical_accuracy_meters=None,
-        source_speed=8,
-        recorded_speed_mps=8,
+        source_speed=recorded_speed_mps,
+        recorded_speed_mps=recorded_speed_mps,
         network_type=0,
         network_name=None,
         location_type=0,
@@ -83,7 +88,8 @@ class DatabasePersistenceTests(unittest.TestCase):
         )
 
         self.assertEqual(set(result.stage_run_ids), {
-            "quality", "continuity", "motion", "stays", "trips", "modes", "trajectory"
+            "quality", "continuity", "motion", "stays", "trips", "places", "modes",
+            "trajectory"
         })
         self.assertEqual(result.row_counts["point_assessments"], len(points))
         self.assertEqual(result.row_counts["trajectory_vertices"], len(points))
@@ -126,6 +132,77 @@ class DatabasePersistenceTests(unittest.TestCase):
         self.assertFalse(
             any("INSERT INTO app.processing_runs" in query for query, _ in connection.fake_cursor.executions)
         )
+
+    def test_confirmed_visit_is_bound_to_a_versioned_place(self) -> None:
+        points = [
+            point(index, longitude=121.49 + index * 0.0008)
+            for index in range(15)
+        ]
+        stop_longitude = points[-1].wgs_longitude
+        points.extend(
+            point(
+                index,
+                longitude=stop_longitude + (index % 3 - 1) * 0.000005,
+                recorded_speed_mps=0,
+            )
+            for index in range(15, 65)
+        )
+        points.extend(
+            point(index, longitude=stop_longitude + (index - 64) * 0.0008)
+            for index in range(65, 80)
+        )
+        trace = process_trace(points)
+        connection = FakeConnection([item.source_row_number for item in points])
+
+        result = persist_processed_trace(
+            connection,
+            dataset_id=UUID("ab96de99-f2d3-402b-ad2b-c756e05d4d62"),
+            dataset_import_id=UUID("3a2b810e-ce30-408a-a29b-9e6c9bf026e5"),
+            input_sha256="c" * 64,
+            trace=trace,
+        )
+
+        self.assertEqual(result.row_counts["places"], 1)
+        self.assertEqual(result.row_counts["place_versions"], 1)
+        self.assertEqual(result.row_counts["visits"], 1)
+        visit_batch = next(
+            batch
+            for query, batch in connection.fake_cursor.many
+            if "INSERT INTO app.visits" in query
+        )
+        self.assertIsNotNone(visit_batch[0][5])
+        second_connection = FakeConnection(
+            [item.source_row_number for item in points]
+        )
+        persist_processed_trace(
+            second_connection,
+            dataset_id=UUID("ab96de99-f2d3-402b-ad2b-c756e05d4d62"),
+            dataset_import_id=UUID("3a2b810e-ce30-408a-a29b-9e6c9bf026e5"),
+            input_sha256="c" * 64,
+            trace=trace,
+        )
+        first_place_identity = next(
+            batch[0][0]
+            for query, batch in connection.fake_cursor.many
+            if "INSERT INTO app.places" in query
+        )
+        second_place_identity = next(
+            batch[0][0]
+            for query, batch in second_connection.fake_cursor.many
+            if "INSERT INTO app.places" in query
+        )
+        first_place_version = next(
+            batch[0][0]
+            for query, batch in connection.fake_cursor.many
+            if "INSERT INTO app.place_versions" in query
+        )
+        second_place_version = next(
+            batch[0][0]
+            for query, batch in second_connection.fake_cursor.many
+            if "INSERT INTO app.place_versions" in query
+        )
+        self.assertEqual(first_place_identity, second_place_identity)
+        self.assertNotEqual(first_place_version, second_place_version)
 
     def test_invalid_source_hash_is_rejected_without_database_access(self) -> None:
         trace = process_trace([point(0, longitude=121.49)])

@@ -13,7 +13,16 @@ from uuid import UUID, uuid4, uuid5
 from routefrom_pipeline.pipeline import ProcessedTrace
 from routefrom_pipeline.quality import haversine_meters
 
-_STAGES = ("quality", "continuity", "motion", "stays", "trips", "modes", "trajectory")
+_STAGES = (
+    "quality",
+    "continuity",
+    "motion",
+    "stays",
+    "trips",
+    "places",
+    "modes",
+    "trajectory",
+)
 _LOGICAL_NAMESPACE = UUID("f42be854-2b56-4ec7-89eb-a232164257c1")
 
 
@@ -209,8 +218,20 @@ def persist_processed_trace(
         episode_ids = _persist_motion(
             cursor, row_counts, run_id, stage_ids, dataset_id, point_ids, trace
         )
-        _, visit_ids = _persist_stays(
+        event_ids = _persist_stays(
             cursor, row_counts, run_id, stage_ids, dataset_id, episode_ids, trace
+        )
+        place_version_ids = _persist_places(
+            cursor, row_counts, run_id, dataset_id, trace
+        )
+        visit_ids = _persist_visits(
+            cursor,
+            row_counts,
+            run_id,
+            dataset_id,
+            event_ids,
+            place_version_ids,
+            trace,
         )
         trip_ids = _persist_trips(
             cursor, row_counts, run_id, stage_ids, dataset_id, visit_ids, trace
@@ -471,15 +492,12 @@ def _persist_stays(
     dataset_id: UUID,
     episode_ids: Sequence[UUID],
     trace: ProcessedTrace,
-) -> tuple[tuple[UUID, ...], dict[int, UUID]]:
+) -> tuple[UUID, ...]:
     episode_id_by_points = {
         episode.point_indices: episode_ids[index] for index, episode in enumerate(trace.motion.episodes)
     }
     event_ids: list[UUID] = []
     event_rows: list[Sequence[object]] = []
-    visit_ids: dict[int, UUID] = {}
-    visit_rows: list[Sequence[object]] = []
-    confirmed_visits = set(trace.trips.confirmed_visit_event_indices)
     for event_index, event in enumerate(trace.stays.events):
         source_rows = tuple(trace.points[index].source_row_number for index in event.point_indices)
         logical_id = _logical_id(dataset_id, "stationary_event", source_rows)
@@ -518,23 +536,6 @@ def _persist_stays(
                 ),
             )
         )
-        if event_index in confirmed_visits:
-            visit_logical_id = _logical_id(dataset_id, "visit", source_rows)
-            visit_id = _entity_id(run_id, "visits", visit_logical_id)
-            visit_ids[event_index] = visit_id
-            visit_rows.append(
-                (
-                    visit_id,
-                    visit_logical_id,
-                    run_id,
-                    dataset_id,
-                    event_id,
-                    event.arrival_confidence,
-                    event.departure_confidence,
-                    event.confidence,
-                    _json({"visit_probability": event.visit_probability}),
-                )
-            )
     _execute_many(
         cursor,
         counts,
@@ -553,19 +554,149 @@ def _persist_stays(
         """,
         event_rows,
     )
+    return tuple(event_ids)
+
+
+def _persist_places(
+    cursor: Cursor,
+    counts: dict[str, int],
+    run_id: UUID,
+    dataset_id: UUID,
+    trace: ProcessedTrace,
+) -> dict[int, UUID]:
+    place_ids: list[UUID] = []
+    place_version_ids: list[UUID] = []
+    identity_rows: list[Sequence[object]] = []
+    version_rows: list[Sequence[object]] = []
+    for place_index, place in enumerate(trace.places.places):
+        anchor_event = trace.stays.events[place.anchor_event_index]
+        anchor_source_rows = tuple(
+            trace.points[index].source_row_number for index in anchor_event.point_indices
+        )
+        place_id = _logical_id(dataset_id, "place", anchor_source_rows)
+        place_version_id = _entity_id(run_id, "place_versions", place_id)
+        place_ids.append(place_id)
+        place_version_ids.append(place_version_id)
+        centroid = _point_wkt(place.centroid_longitude, place.centroid_latitude)
+        identity_rows.append((place_id, centroid, dataset_id))
+        version_rows.append(
+            (
+                place_version_id,
+                place_id,
+                run_id,
+                centroid,
+                place.timezone,
+                place.confidence,
+                _json(
+                    {
+                        **place.evidence,
+                        "adaptive_spatial_scale_meters": (
+                            place.adaptive_spatial_scale_meters
+                        ),
+                        "anchor_event_index": place.anchor_event_index,
+                        "distinct_local_date_count": place.distinct_local_date_count,
+                        "first_visited_at": place.first_visited_at,
+                        "frequent_probability": place.frequent_probability,
+                        "last_visited_at": place.last_visited_at,
+                        "observed_duration_seconds": place.observed_duration_seconds,
+                        "spatial_radius_meters": place.spatial_radius_meters,
+                        "visit_count": place.visit_count,
+                        "visit_event_indices": place.visit_event_indices,
+                    }
+                ),
+            )
+        )
+    _execute_many(
+        cursor,
+        counts,
+        "places",
+        """
+        INSERT INTO app.places (id,user_id,centroid)
+        SELECT %s,dataset.user_id,ST_GeomFromText(%s,4326)
+        FROM app.datasets AS dataset
+        WHERE dataset.id = %s
+        ON CONFLICT (id) DO NOTHING
+        """,
+        identity_rows,
+    )
+    _execute_many(
+        cursor,
+        counts,
+        "place_versions",
+        """
+        INSERT INTO app.place_versions (
+          id,place_id,processing_run_id,centroid,timezone,source_kind,confidence,evidence
+        ) VALUES (
+          %s,%s,%s,ST_GeomFromText(%s,4326),%s,'trajectory_cluster',%s,%s::jsonb
+        )
+        """,
+        version_rows,
+    )
+    version_by_event: dict[int, UUID] = {}
+    for binding in trace.places.bindings:
+        if binding.place_index is not None:
+            version_by_event[binding.stationary_event_index] = place_version_ids[
+                binding.place_index
+            ]
+    return version_by_event
+
+
+def _persist_visits(
+    cursor: Cursor,
+    counts: dict[str, int],
+    run_id: UUID,
+    dataset_id: UUID,
+    event_ids: Sequence[UUID],
+    place_version_ids: Mapping[int, UUID],
+    trace: ProcessedTrace,
+) -> dict[int, UUID]:
+    binding_by_event = {
+        binding.stationary_event_index: binding for binding in trace.places.bindings
+    }
+    visit_ids: dict[int, UUID] = {}
+    visit_rows: list[Sequence[object]] = []
+    for event_index in trace.trips.confirmed_visit_event_indices:
+        event = trace.stays.events[event_index]
+        source_rows = tuple(
+            trace.points[index].source_row_number for index in event.point_indices
+        )
+        visit_logical_id = _logical_id(dataset_id, "visit", source_rows)
+        visit_id = _entity_id(run_id, "visits", visit_logical_id)
+        visit_ids[event_index] = visit_id
+        binding = binding_by_event.get(event_index)
+        visit_rows.append(
+            (
+                visit_id,
+                visit_logical_id,
+                run_id,
+                dataset_id,
+                event_ids[event_index],
+                place_version_ids.get(event_index),
+                event.arrival_confidence,
+                event.departure_confidence,
+                event.confidence,
+                _json(
+                    {
+                        "place_binding": binding,
+                        "visit_probability": event.visit_probability,
+                    }
+                ),
+            )
+        )
     _execute_many(
         cursor,
         counts,
         "visits",
         """
         INSERT INTO app.visits (
-          id,logical_id,processing_run_id,dataset_id,stationary_event_id,status,
-          arrival_confidence,departure_confidence,overall_confidence,evidence
-        ) VALUES (%s,%s,%s,%s,%s,'candidate',%s,%s,%s,%s::jsonb)
+          id,logical_id,processing_run_id,dataset_id,stationary_event_id,
+          place_version_id,status,arrival_confidence,departure_confidence,
+          overall_confidence,evidence
+        ) VALUES (%s,%s,%s,%s,%s,%s,'confirmed',%s,%s,%s,%s::jsonb)
         """,
         visit_rows,
     )
-    return tuple(event_ids), visit_ids
+    return visit_ids
 
 
 def _persist_trips(

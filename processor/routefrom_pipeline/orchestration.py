@@ -179,11 +179,12 @@ def run_linggan_pipeline(
         points = tuple(iter_linggan_csv(source_path))
         if not points:
             raise ValueError("Linggan CSV contains no location points")
-        trace = process_trace(points, config=config)
+        effective_config = dataclasses.replace(config, timezone=timezone)
+        trace = process_trace(points, config=effective_config)
         _mark_job_persisting(connection, job_id)
 
         processing_parameters: dict[str, object] = {
-            "processing_config": dataclasses.asdict(config),
+            "processing_config": dataclasses.asdict(effective_config),
             "source_parser": {
                 "name": "linggan_footprint_csv",
                 "timezone": timezone,
