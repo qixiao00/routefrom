@@ -13,6 +13,13 @@ from routefrom_pipeline.continuity import (
     select_continuity,
 )
 from routefrom_pipeline.motion import MotionConfig, MotionResult, infer_motion
+from routefrom_pipeline.map_matching import (
+    MapMatchConfig,
+    MapMatchResult,
+    MapMatcher,
+    MapSnapshotRef,
+    match_trace,
+)
 from routefrom_pipeline.modes import ModeConfig, ModeResult, infer_transport_modes
 from routefrom_pipeline.places import PlaceConfig, PlaceResult, resolve_places
 from routefrom_pipeline.quality import (
@@ -33,10 +40,11 @@ from routefrom_pipeline.trips import TripConfig, TripResult, segment_trips
 from routefrom_pipeline.trajectory import (
     TrajectoryConfig,
     TrajectoryRepresentation,
+    build_hybrid_trajectory_representation,
     build_trajectory_representation,
 )
 
-ALGORITHM_VERSION = "quality-continuity-motion-stays-trips-places-modes-smoothing-trajectory-v3"
+ALGORITHM_VERSION = "quality-continuity-motion-stays-trips-places-modes-smoothing-map-matching-trajectory-v4"
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +60,7 @@ class ProcessingConfig:
     places: PlaceConfig = PlaceConfig()
     modes: ModeConfig = ModeConfig()
     smoothing: SmoothingConfig = SmoothingConfig()
+    map_matching: MapMatchConfig = MapMatchConfig()
     trajectory: TrajectoryConfig = TrajectoryConfig()
 
 
@@ -70,14 +79,18 @@ class ProcessedTrace:
     places: PlaceResult
     modes: ModeResult
     smoothing: SmoothingResult
+    map_matching: MapMatchResult | None
     trajectory: TrajectoryRepresentation
     smoothed_trajectory: TrajectoryRepresentation
+    map_matched_trajectory: TrajectoryRepresentation | None
 
 
 def process_trace(
     points: Sequence[LocatedObservation],
     *,
     config: ProcessingConfig = ProcessingConfig(),
+    map_matcher: MapMatcher | None = None,
+    map_snapshot: MapSnapshotRef | None = None,
 ) -> ProcessedTrace:
     """Run the first deterministic RouteFrom processing stage.
 
@@ -86,6 +99,8 @@ def process_trace(
     and transport modes intentionally consume this result in later stages.
     """
 
+    if (map_matcher is None) != (map_snapshot is None):
+        raise ValueError("map_matcher and map_snapshot must be provided together")
     normalized_points = tuple(points)
     for previous, current in zip(normalized_points, normalized_points[1:]):
         if current.recorded_at <= previous.recorded_at:
@@ -184,6 +199,42 @@ def process_trace(
         coordinate_by_point=smoothing.coordinate_by_point,
         variant_kind="smoothed_gps",
     )
+    map_matching = (
+        match_trace(
+            normalized_points,
+            modes,
+            map_matcher,
+            map_snapshot,
+            config=config.map_matching,
+        )
+        if map_matcher is not None and map_snapshot is not None
+        else None
+    )
+    smoothing_guard_rate = (
+        smoothing.displacement_limited_count / len(smoothing.points)
+        if smoothing.points
+        else 1.0
+    )
+    map_base = (
+        smoothed_trajectory
+        if smoothing.confidence >= 0.65 and smoothing_guard_rate <= 0.10
+        else trajectory
+    )
+    map_matched_trajectory = (
+        build_hybrid_trajectory_representation(
+            map_base,
+            [
+                (segment.point_indices, segment.vertices)
+                for segment in map_matching.segments
+                if segment.accepted
+            ],
+            config=config.trajectory,
+        )
+        if map_matching is not None and any(
+            segment.accepted for segment in map_matching.segments
+        )
+        else None
+    )
     return ProcessedTrace(
         algorithm_version=ALGORITHM_VERSION,
         points=normalized_points,
@@ -198,6 +249,8 @@ def process_trace(
         places=places,
         modes=modes,
         smoothing=smoothing,
+        map_matching=map_matching,
         trajectory=trajectory,
         smoothed_trajectory=smoothed_trajectory,
+        map_matched_trajectory=map_matched_trajectory,
     )

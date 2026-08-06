@@ -97,7 +97,12 @@ class OrchestrationTests(unittest.TestCase):
             timezone="Asia/Shanghai",
             batch_size=500,
         )
-        process.assert_called_once_with(source_points, config=config)
+        process.assert_called_once_with(
+            source_points,
+            config=config,
+            map_matcher=None,
+            map_snapshot=None,
+        )
         persist.assert_called_once()
         persistence_call = persist.call_args.kwargs
         self.assertEqual(persistence_call["dataset_import_id"], self.dataset_import_id)

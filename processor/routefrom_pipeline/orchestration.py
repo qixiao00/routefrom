@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Mapping
 from uuid import UUID, uuid4
 
+from routefrom_pipeline.map_matching import MapMatcher, MapSnapshotRef
 from routefrom_pipeline.database.imports import (
     Connection,
     ImportResult,
@@ -153,6 +154,8 @@ def run_linggan_pipeline(
     code_revision: str | None = None,
     activate: bool = True,
     import_batch_size: int = 2_000,
+    map_matcher: MapMatcher | None = None,
+    map_snapshot: MapSnapshotRef | None = None,
 ) -> PipelineExecutionResult:
     """Import, process, persist, and publish a Linggan export with job state.
 
@@ -180,7 +183,12 @@ def run_linggan_pipeline(
         if not points:
             raise ValueError("Linggan CSV contains no location points")
         effective_config = dataclasses.replace(config, timezone=timezone)
-        trace = process_trace(points, config=effective_config)
+        trace = process_trace(
+            points,
+            config=effective_config,
+            map_matcher=map_matcher,
+            map_snapshot=map_snapshot,
+        )
         _mark_job_persisting(connection, job_id)
 
         processing_parameters: dict[str, object] = {
@@ -189,6 +197,9 @@ def run_linggan_pipeline(
                 "name": "linggan_footprint_csv",
                 "timezone": timezone,
             },
+            "map_snapshot": (
+                dataclasses.asdict(map_snapshot) if map_snapshot is not None else None
+            ),
         }
         if parameters:
             processing_parameters["requested"] = dict(parameters)

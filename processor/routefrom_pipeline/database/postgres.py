@@ -22,6 +22,7 @@ _STAGES = (
     "trips",
     "places",
     "modes",
+    "map_matching",
     "trajectory",
 )
 _LOGICAL_NAMESPACE = UUID("f42be854-2b56-4ec7-89eb-a232164257c1")
@@ -52,6 +53,8 @@ def _jsonable(value: Any) -> Any:
         return value.value
     if isinstance(value, datetime):
         return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
     if isinstance(value, Mapping):
         return {str(key): _jsonable(item) for key, item in value.items()}
     if isinstance(value, (tuple, list)):
@@ -255,14 +258,30 @@ def persist_processed_trace(
             trace,
         )
 
-        metrics = {"row_counts": row_counts, "point_count": len(trace.points)}
+        metrics = {
+            "row_counts": row_counts,
+            "point_count": len(trace.points),
+            "map_matching": (
+                {
+                    "preferred": trace.map_matching.preferred,
+                    "confidence": trace.map_matching.confidence,
+                    "moving_coverage": trace.map_matching.moving_coverage,
+                }
+                if trace.map_matching is not None
+                else {"status": "not_configured"}
+            ),
+        }
         cursor.execute(
             """
             UPDATE app.processing_stage_runs
-            SET status = 'succeeded', completed_at = now()
+            SET status = CASE
+                  WHEN id = %s AND %s THEN 'skipped'
+                  ELSE 'succeeded'
+                END,
+                completed_at = now()
             WHERE processing_run_id = %s
             """,
-            (run_id,),
+            (stage_ids["map_matching"], trace.map_matching is None, run_id),
         )
         cursor.execute(
             """
@@ -925,8 +944,13 @@ def _persist_trajectory(
         if smoothed_point_count
         else 1.0
     )
-    smoothed_preferred = (
+    smoothed_eligible = (
         trace.smoothing.confidence >= 0.65 and smoothing_guard_rate <= 0.10
+    )
+    map_preferred = bool(
+        trace.map_matching is not None
+        and trace.map_matching.preferred
+        and trace.map_matched_trajectory is not None
     )
     _persist_trajectory_representation(
         cursor,
@@ -940,9 +964,10 @@ def _persist_trajectory(
         trace,
         trace.trajectory,
         confidence=None,
-        preferred=not smoothed_preferred,
-        associate=not smoothed_preferred,
+        preferred=not smoothed_eligible and not map_preferred,
+        associate=not smoothed_eligible and not map_preferred,
         fallback_reason=None,
+        map_snapshot_id=None,
     )
     _persist_trajectory_representation(
         cursor,
@@ -956,14 +981,33 @@ def _persist_trajectory(
         trace,
         trace.smoothed_trajectory,
         confidence=trace.smoothing.confidence,
-        preferred=smoothed_preferred,
-        associate=smoothed_preferred,
+        preferred=smoothed_eligible and not map_preferred,
+        associate=smoothed_eligible and not map_preferred,
         fallback_reason=(
             None
-            if smoothed_preferred
+            if smoothed_eligible
             else "smoothing_confidence_or_guard_rate"
         ),
+        map_snapshot_id=None,
     )
+    if trace.map_matching is not None and trace.map_matched_trajectory is not None:
+        _persist_trajectory_representation(
+            cursor,
+            counts,
+            run_id,
+            stages,
+            dataset_id,
+            point_ids,
+            trip_ids,
+            leg_ids,
+            trace,
+            trace.map_matched_trajectory,
+            confidence=trace.map_matching.confidence,
+            preferred=map_preferred,
+            associate=map_preferred,
+            fallback_reason=trace.map_matching.fallback_reason,
+            map_snapshot_id=trace.map_matching.snapshot.id,
+        )
 
 
 def _persist_trajectory_representation(
@@ -982,6 +1026,7 @@ def _persist_trajectory_representation(
     preferred: bool,
     associate: bool,
     fallback_reason: str | None,
+    map_snapshot_id: UUID | None,
 ) -> None:
     variant_id = _entity_id(run_id, "trajectory_variants", representation.variant_kind)
     cursor.execute(
@@ -989,8 +1034,8 @@ def _persist_trajectory_representation(
         INSERT INTO app.trajectory_variants (
           id,processing_run_id,dataset_id,stage_run_id,variant_kind,confidence,
           preferred_for_display,preferred_for_distance,fallback_reason,
-          importance_algorithm,metadata
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+          importance_algorithm,metadata,map_snapshot_id
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
         """,
         (
             variant_id,
@@ -1018,8 +1063,36 @@ def _persist_trajectory_representation(
                         if representation.variant_kind == "smoothed_gps"
                         else 0
                     ),
+                    "map_matching": (
+                        {
+                            "matcher": trace.map_matching.matcher_name,
+                            "matcher_version": trace.map_matching.matcher_version,
+                            "snapshot_version": trace.map_matching.snapshot.snapshot_version,
+                            "eligible_point_count": trace.map_matching.eligible_point_count,
+                            "accepted_point_count": trace.map_matching.accepted_point_count,
+                            "moving_coverage": trace.map_matching.moving_coverage,
+                            "segments": [
+                                {
+                                    "request_index": segment.request_index,
+                                    "costing": segment.costing,
+                                    "status": segment.status,
+                                    "confidence": segment.confidence,
+                                    "matched_fraction": segment.matched_fraction,
+                                    "median_residual_meters": segment.median_residual_meters,
+                                    "p95_residual_meters": segment.p95_residual_meters,
+                                    "path_ratio": segment.path_ratio,
+                                    "reason_codes": segment.reason_codes,
+                                }
+                                for segment in trace.map_matching.segments
+                            ],
+                        }
+                        if representation.variant_kind == "map_matched"
+                        and trace.map_matching is not None
+                        else None
+                    ),
                 }
             ),
+            map_snapshot_id,
         ),
     )
     counts["trajectory_variants"] = counts.get("trajectory_variants", 0) + 1

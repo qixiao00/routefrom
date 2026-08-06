@@ -360,6 +360,19 @@ flowchart LR
 
 否则 `preferred_for_display` 回退到 `smoothed_gps`，再回退到 `cleaned_gps`。
 
+当前 v1 工程实现使用可替换 `MapMatcher` 协议，生产适配器为本机
+Valhalla/Meili `trace_attributes`。请求只由同一交通方式分段内的连续观测组成，长分段重叠切块，
+绝不跨观测缺口。步行/跑步使用 pedestrian，骑行使用 bicycle，道路车辆使用 auto；
+轨道、航空、水路和 unknown 在缺少专用网络时保留 GPS，不能强贴公路。
+
+适配器默认只允许 loopback URL，避免把私人轨迹上传公共路由服务。每个请求检查 100% 输入点覆盖、
+中位/P95 贴路残差、网络绕路比例、路由断裂和可用路径形状；未通过的局部区间保留平滑 GPS。
+通过的路网形状按输入观测时间插值，保留为可裁剪、可播放的 `map_matched` 顶点，同时保持原连续段边界。
+全局覆盖率和置信度通过门槛后才把该混合表示设为首选，并记录地图快照 ID 和质量证据。
+
+Valhalla 当前 HTTP 响应不直接暴露最佳/次优 Viterbi 路径概率间隔，因此 v1 的置信度是覆盖、残差、
+断裂和绕路的可解释质量代理，不宣称完成候选间隔校准。真实 OSM 图快照集成和人工标注校准仍待执行。
+
 ## 14. 虚线猜测
 
 可为三类未知连接生成候选：`gap`、`inferred_origin`、`inferred_destination`。

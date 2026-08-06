@@ -33,6 +33,24 @@ Smoothing never crosses continuity gaps, locally falls back when it leaves the
 measurement support radius, and only becomes preferred when run-level quality
 checks pass.
 
+Optional map matching uses a versioned local Valhalla/Meili graph. It splits
+requests by supported mobility mode, never crosses an observation gap, and
+keeps smoothed or cleaned GPS for every rejected interval. Remote URLs are
+blocked by default so private traces are not sent to a public routing service.
+
+```powershell
+$env:ROUTEFROM_VALHALLA_URL = "http://127.0.0.1:8002"
+$env:ROUTEFROM_MAP_SNAPSHOT_ID = "00000000-0000-0000-0000-000000000000"
+$env:ROUTEFROM_MAP_SNAPSHOT_VERSION = "osm-2026-08-01"
+$env:ROUTEFROM_MAP_DATASET_NAME = "china-regional-extract"
+```
+
+The snapshot ID must reference the exact graph artifact registered in
+`app.map_data_snapshots`. Without all three required map settings, the worker
+runs normally and keeps the GPS variants. A real local Valhalla graph has not
+yet been installed or exercised in this repository; adapter and quality-gate
+behavior are covered with deterministic fixtures.
+
 The import transaction commits before algorithm execution. This preserves the
 raw observations when an algorithm fails and allows a later version to retry
 without changing source points. Identical successful imports are reused rather

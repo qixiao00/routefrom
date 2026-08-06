@@ -395,6 +395,147 @@ def build_trajectory_representation(
     )
 
 
+def _explicit_importance(vertices: Sequence[TrajectoryVertex]) -> list[float | None]:
+    if not vertices:
+        return []
+    origin_latitude = sum(vertex.latitude for vertex in vertices) / len(vertices)
+    origin_longitude = sum(vertex.longitude for vertex in vertices) / len(vertices)
+    coordinates = [
+        _project_meters(
+            vertex.latitude,
+            vertex.longitude,
+            origin_latitude,
+            origin_longitude,
+        )
+        for vertex in vertices
+    ]
+    importance: list[float | None] = [0.0] * len(vertices)
+    anchors = sorted(
+        {
+            0,
+            len(vertices) - 1,
+            *(index for index, vertex in enumerate(vertices) if vertex.is_semantic_anchor),
+        }
+    )
+    for anchor in anchors:
+        importance[anchor] = None
+    for start, end in zip(anchors, anchors[1:]):
+        _assign_interval_importance(coordinates, start, end, importance)
+    return importance
+
+
+def build_hybrid_trajectory_representation(
+    base: TrajectoryRepresentation,
+    replacements: Sequence[
+        tuple[tuple[int, ...], tuple[TrajectoryVertex, ...]]
+    ],
+    *,
+    config: TrajectoryConfig = TrajectoryConfig(),
+) -> TrajectoryRepresentation:
+    """Replace accepted source-point intervals with routed geometry.
+
+    The result keeps the original continuity segments. Unmatched intervals stay
+    on the base (normally smoothed GPS) representation, so a road matcher can
+    never invent a connection across an observation gap.
+    """
+
+    if base.variant_kind not in ("cleaned_gps", "smoothed_gps"):
+        raise ValueError("hybrid map matching requires a GPS base representation")
+    replacement_items = [item for item in replacements if item[0] and item[1]]
+    segments: list[TrajectorySegment] = []
+    sequence_number = 0
+    for base_segment in base.segments:
+        base_vertices = list(base_segment.vertices)
+        position_by_point = {
+            vertex.point_index: position
+            for position, vertex in enumerate(base_vertices)
+            if vertex.point_index is not None
+        }
+        applicable = []
+        for point_indices, vertices in replacement_items:
+            if point_indices[0] in position_by_point and point_indices[-1] in position_by_point:
+                applicable.append(
+                    (
+                        position_by_point[point_indices[0]],
+                        position_by_point[point_indices[-1]],
+                        vertices,
+                    )
+                )
+        applicable.sort(key=lambda item: (item[0], item[1]))
+        assembled: list[TrajectoryVertex] = []
+
+        def append(vertex: TrajectoryVertex) -> None:
+            if assembled and vertex.recorded_at < assembled[-1].recorded_at:
+                raise ValueError("map-matched vertices must preserve observation order")
+            if assembled and vertex.recorded_at == assembled[-1].recorded_at:
+                if assembled[-1].point_index is None or vertex.point_index is not None:
+                    assembled[-1] = vertex
+                return
+            assembled.append(vertex)
+
+        cursor = 0
+        for start, end, routed_vertices in applicable:
+            if end < cursor:
+                continue
+            for vertex in base_vertices[cursor:max(cursor, start)]:
+                append(vertex)
+            anchor_by_point = {
+                vertex.point_index: vertex.anchor_reasons
+                for vertex in base_vertices[start : end + 1]
+                if vertex.point_index is not None
+            }
+            for vertex in routed_vertices:
+                if assembled and vertex.recorded_at < assembled[-1].recorded_at:
+                    # Consecutive matcher chunks deliberately overlap. Geometry
+                    # already emitted by the previous accepted chunk wins.
+                    continue
+                append(
+                    TrajectoryVertex(
+                        sequence_number=None,
+                        point_index=vertex.point_index,
+                        recorded_at=vertex.recorded_at,
+                        latitude=vertex.latitude,
+                        longitude=vertex.longitude,
+                        importance_meters=0.0,
+                        is_interpolated=vertex.is_interpolated,
+                        anchor_reasons=anchor_by_point.get(vertex.point_index, ()),
+                    )
+                )
+            cursor = max(cursor, end + 1)
+        for vertex in base_vertices[cursor:]:
+            append(vertex)
+        importance = _explicit_importance(assembled)
+        stored_vertices = tuple(
+            TrajectoryVertex(
+                sequence_number=sequence_number + position,
+                point_index=vertex.point_index,
+                recorded_at=vertex.recorded_at,
+                latitude=vertex.latitude,
+                longitude=vertex.longitude,
+                importance_meters=importance[position],
+                is_interpolated=vertex.is_interpolated,
+                anchor_reasons=vertex.anchor_reasons,
+            )
+            for position, vertex in enumerate(assembled)
+        )
+        sequence_number += len(stored_vertices)
+        segments.append(
+            TrajectorySegment(
+                segment_index=base_segment.segment_index,
+                vertices=stored_vertices,
+                started_at=stored_vertices[0].recorded_at,
+                ended_at=stored_vertices[-1].recorded_at,
+            )
+        )
+    built_segments = tuple(segments)
+    return TrajectoryRepresentation(
+        variant_kind="map_matched",
+        importance_algorithm="constrained_effective_area_v1",
+        segments=built_segments,
+        chunks=_chunks_from_segments(built_segments, config),
+    )
+
+
 def _interpolate_vertex(
     left: TrajectoryVertex,
     right: TrajectoryVertex,

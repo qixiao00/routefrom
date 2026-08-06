@@ -9,6 +9,7 @@ from uuid import UUID
 
 from routefrom_pipeline import process_trace
 from routefrom_pipeline.database import persist_processed_trace
+from routefrom_pipeline.map_matching import MapMatchResult, MapSnapshotRef
 from routefrom_pipeline.model import NormalizedLocationPoint
 
 
@@ -90,7 +91,7 @@ class DatabasePersistenceTests(unittest.TestCase):
 
         self.assertEqual(set(result.stage_run_ids), {
             "quality", "continuity", "motion", "stays", "trips", "places", "modes",
-            "trajectory"
+            "map_matching", "trajectory"
         })
         self.assertEqual(result.row_counts["point_assessments"], len(points))
         self.assertEqual(result.row_counts["trajectory_variants"], 2)
@@ -268,6 +269,61 @@ class DatabasePersistenceTests(unittest.TestCase):
             smoothed_parameters[8],
             "smoothing_confidence_or_guard_rate",
         )
+
+    def test_accepted_map_match_is_preferred_and_keeps_snapshot_lineage(self) -> None:
+        points = [
+            point(index, longitude=121.49 + index * 0.00084)
+            for index in range(18)
+        ]
+        trace = process_trace(points)
+        snapshot_id = UUID("00000000-0000-0000-0000-000000000123")
+        trace = replace(
+            trace,
+            map_matching=MapMatchResult(
+                matcher_name="fixture_hmm",
+                matcher_version="1",
+                snapshot=MapSnapshotRef(
+                    id=snapshot_id,
+                    provider="test",
+                    dataset_name="roads",
+                    snapshot_version="2026-08-01",
+                ),
+                segments=(),
+                eligible_point_count=len(points),
+                accepted_point_count=len(points),
+                moving_coverage=1.0,
+                confidence=0.9,
+                preferred=True,
+                fallback_reason=None,
+            ),
+            map_matched_trajectory=replace(
+                trace.smoothed_trajectory,
+                variant_kind="map_matched",
+            ),
+        )
+        connection = FakeConnection([item.source_row_number for item in points])
+
+        result = persist_processed_trace(
+            connection,
+            dataset_id=UUID("ab96de99-f2d3-402b-ad2b-c756e05d4d62"),
+            dataset_import_id=UUID("3a2b810e-ce30-408a-a29b-9e6c9bf026e5"),
+            input_sha256="e" * 64,
+            trace=trace,
+        )
+
+        variant_parameters = [
+            params
+            for query, params in connection.fake_cursor.executions
+            if "INSERT INTO app.trajectory_variants" in query
+        ]
+        self.assertEqual(result.row_counts["trajectory_variants"], 3)
+        preferred_by_kind = {params[4]: params[6] for params in variant_parameters}
+        self.assertEqual(
+            preferred_by_kind,
+            {"cleaned_gps": False, "smoothed_gps": False, "map_matched": True},
+        )
+        mapped = next(params for params in variant_parameters if params[4] == "map_matched")
+        self.assertEqual(mapped[11], snapshot_id)
 
 
 if __name__ == "__main__":
