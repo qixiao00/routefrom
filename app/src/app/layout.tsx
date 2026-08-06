@@ -1,4 +1,8 @@
 import type { Metadata } from "next";
+import "@fontsource-variable/ibm-plex-sans";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-sans-condensed/500.css";
+import "@fontsource/ibm-plex-sans-condensed/600.css";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
 

@@ -9,6 +9,7 @@
     "build": "cross-env NODE_OPTIONS= next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types src/lib/*.test.ts",
     "test:query": "node --test --experimental-strip-types src/lib/workspace-query.test.ts"
   },
   "dependencies": {

@@ -7,10 +7,11 @@ name = "routefrom-pipeline"
 version = "0.1.0"
 description = "Versioned and explainable personal trajectory processing for RouteFrom"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["tzdata>=2025.2"]
 
 [project.scripts]
 routefrom-process = "routefrom_pipeline.cli:main"
+routefrom-preview = "routefrom_pipeline.export_preview:main"
 
 [project.optional-dependencies]
 algorithm = [

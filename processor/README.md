@@ -51,6 +51,22 @@ runs normally and keeps the GPS variants. A real local Valhalla graph has not
 yet been installed or exercised in this repository; adapter and quality-gate
 behavior are covered with deterministic fixtures.
 
+## Building the private frontend preview
+
+Until the PostGIS-backed workspace API is connected, the MVP can read a
+gitignored JSON projection of a local CSV. The export runs the same processor,
+keeps gaps and confidence-bearing derived events, and limits trajectory
+vertices for an interactive MapLibre preview.
+
+```powershell
+routefrom-preview "C:\private\linggan.csv" `
+  --output ".\data\generated\workspace-preview.json" `
+  --vertex-budget 15000
+```
+
+The source CSV and generated preview are private local artifacts and must not
+be committed. The frontend README documents the guarded server-only endpoint.
+
 The import transaction commits before algorithm execution. This preserves the
 raw observations when an algorithm fails and allows a later version to retry
 without changing source points. Identical successful imports are reused rather
