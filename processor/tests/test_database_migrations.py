@@ -18,7 +18,7 @@ class DatabaseMigrationTests(unittest.TestCase):
     def test_migration_numbers_are_contiguous(self) -> None:
         numbers = [int(path.name.split("_", 1)[0]) for path in self.migrations]
 
-        self.assertEqual(numbers, list(range(1, 12)))
+        self.assertEqual(numbers, list(range(1, 13)))
 
     def test_every_migration_parses_as_postgresql(self) -> None:
         for path in self.migrations:
@@ -102,6 +102,16 @@ class DatabaseMigrationTests(unittest.TestCase):
             contract["$defs"]["trajectoryPath"]["properties"]["isInferred"]["const"],
             False,
         )
+
+    def test_import_jobs_link_source_imports_to_processing_runs(self) -> None:
+        sql = (
+            self.migration_directory / "0012_import_job_lineage.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("dataset_import_id uuid", sql)
+        self.assertIn("processing_run_id uuid", sql)
+        self.assertIn("import_jobs_import_dataset_fk", sql)
+        self.assertIn("import_jobs_processing_run_dataset_fk", sql)
 
 
 if __name__ == "__main__":

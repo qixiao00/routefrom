@@ -9,6 +9,9 @@ description = "Versioned and explainable personal trajectory processing for Rout
 requires-python = ">=3.12"
 dependencies = []
 
+[project.scripts]
+routefrom-process = "routefrom_pipeline.cli:main"
+
 [project.optional-dependencies]
 algorithm = [
   "numpy>=2.0",
