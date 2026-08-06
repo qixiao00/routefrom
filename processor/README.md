@@ -28,6 +28,10 @@ jobs retain the source import and processing run IDs for audit and recovery.
 Confirmed visits are clustered into versioned places with adaptive spatial
 scales and probability-margin binding. The current place stage intentionally
 does not claim building or POI identity without map evidence.
+The worker also stores both cleaned and ENU Kalman/RTS-smoothed GPS variants.
+Smoothing never crosses continuity gaps, locally falls back when it leaves the
+measurement support radius, and only becomes preferred when run-level quality
+checks pass.
 
 The import transaction commits before algorithm execution. This preserves the
 raw observations when an algorithm fails and allows a later version to retry

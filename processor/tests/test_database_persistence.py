@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from contextlib import nullcontext
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -92,7 +93,20 @@ class DatabasePersistenceTests(unittest.TestCase):
             "trajectory"
         })
         self.assertEqual(result.row_counts["point_assessments"], len(points))
-        self.assertEqual(result.row_counts["trajectory_vertices"], len(points))
+        self.assertEqual(result.row_counts["trajectory_variants"], 2)
+        self.assertEqual(result.row_counts["trajectory_vertices"], len(points) * 2)
+        variant_parameters = [
+            params
+            for query, params in connection.fake_cursor.executions
+            if "INSERT INTO app.trajectory_variants" in query
+        ]
+        self.assertEqual(
+            {params[4] for params in variant_parameters},
+            {"cleaned_gps", "smoothed_gps"},
+        )
+        preferred_by_kind = {params[4]: params[6] for params in variant_parameters}
+        self.assertFalse(preferred_by_kind["cleaned_gps"])
+        self.assertTrue(preferred_by_kind["smoothed_gps"])
         self.assertGreater(result.row_counts["mobility_legs"], 0)
         self.assertGreater(result.row_counts["leg_mode_scores"], 0)
         self.assertTrue(
@@ -218,6 +232,42 @@ class DatabasePersistenceTests(unittest.TestCase):
             )
 
         self.assertEqual(connection.fake_cursor.executions, [])
+
+    def test_low_smoothing_confidence_prefers_cleaned_gps_fallback(self) -> None:
+        points = [
+            point(index, longitude=121.49 + index * 0.00084)
+            for index in range(18)
+        ]
+        trace = process_trace(points)
+        trace = replace(
+            trace,
+            smoothing=replace(trace.smoothing, confidence=0.1),
+        )
+        connection = FakeConnection([item.source_row_number for item in points])
+
+        persist_processed_trace(
+            connection,
+            dataset_id=UUID("ab96de99-f2d3-402b-ad2b-c756e05d4d62"),
+            dataset_import_id=UUID("3a2b810e-ce30-408a-a29b-9e6c9bf026e5"),
+            input_sha256="d" * 64,
+            trace=trace,
+        )
+
+        variant_parameters = [
+            params
+            for query, params in connection.fake_cursor.executions
+            if "INSERT INTO app.trajectory_variants" in query
+        ]
+        preferred_by_kind = {params[4]: params[6] for params in variant_parameters}
+        self.assertTrue(preferred_by_kind["cleaned_gps"])
+        self.assertFalse(preferred_by_kind["smoothed_gps"])
+        smoothed_parameters = next(
+            params for params in variant_parameters if params[4] == "smoothed_gps"
+        )
+        self.assertEqual(
+            smoothed_parameters[8],
+            "smoothing_confidence_or_guard_rate",
+        )
 
 
 if __name__ == "__main__":

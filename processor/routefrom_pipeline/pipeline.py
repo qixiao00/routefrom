@@ -23,6 +23,11 @@ from routefrom_pipeline.quality import (
     assess_points,
     build_point_features,
 )
+from routefrom_pipeline.smoothing import (
+    SmoothingConfig,
+    SmoothingResult,
+    smooth_trace,
+)
 from routefrom_pipeline.stays import StayConfig, StayResult, detect_stays
 from routefrom_pipeline.trips import TripConfig, TripResult, segment_trips
 from routefrom_pipeline.trajectory import (
@@ -31,7 +36,7 @@ from routefrom_pipeline.trajectory import (
     build_trajectory_representation,
 )
 
-ALGORITHM_VERSION = "quality-continuity-motion-stays-trips-places-modes-trajectory-v2"
+ALGORITHM_VERSION = "quality-continuity-motion-stays-trips-places-modes-smoothing-trajectory-v3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +51,7 @@ class ProcessingConfig:
     trips: TripConfig = TripConfig()
     places: PlaceConfig = PlaceConfig()
     modes: ModeConfig = ModeConfig()
+    smoothing: SmoothingConfig = SmoothingConfig()
     trajectory: TrajectoryConfig = TrajectoryConfig()
 
 
@@ -63,7 +69,9 @@ class ProcessedTrace:
     trips: TripResult
     places: PlaceResult
     modes: ModeResult
+    smoothing: SmoothingResult
     trajectory: TrajectoryRepresentation
+    smoothed_trajectory: TrajectoryRepresentation
 
 
 def process_trace(
@@ -140,6 +148,24 @@ def process_trace(
         trips,
         config=config.modes,
     )
+    smoothing_anchors = {
+        point_index
+        for segment in continuity.segments
+        if segment
+        for point_index in (segment[0], segment[-1])
+    }
+    for event in stays.events:
+        smoothing_anchors.update((event.point_indices[0], event.point_indices[-1]))
+    for trip in trips.trips:
+        smoothing_anchors.update((trip.point_indices[0], trip.point_indices[-1]))
+    for leg in modes.legs:
+        smoothing_anchors.update((leg.point_indices[0], leg.point_indices[-1]))
+    smoothing = smooth_trace(
+        normalized_points,
+        continuity,
+        anchor_indices=tuple(sorted(smoothing_anchors)),
+        config=config.smoothing,
+    )
     trajectory = build_trajectory_representation(
         normalized_points,
         continuity,
@@ -147,6 +173,16 @@ def process_trace(
         trips,
         modes,
         config=config.trajectory,
+    )
+    smoothed_trajectory = build_trajectory_representation(
+        normalized_points,
+        continuity,
+        stays,
+        trips,
+        modes,
+        config=config.trajectory,
+        coordinate_by_point=smoothing.coordinate_by_point,
+        variant_kind="smoothed_gps",
     )
     return ProcessedTrace(
         algorithm_version=ALGORITHM_VERSION,
@@ -161,5 +197,7 @@ def process_trace(
         trips=trips,
         places=places,
         modes=modes,
+        smoothing=smoothing,
         trajectory=trajectory,
+        smoothed_trajectory=smoothed_trajectory,
     )

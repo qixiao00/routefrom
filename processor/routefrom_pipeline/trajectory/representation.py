@@ -4,7 +4,7 @@ import heapq
 import math
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from routefrom_pipeline.continuity import ContinuityResult
 from routefrom_pipeline.modes import ModeResult
@@ -224,13 +224,25 @@ def _vertex_importance(
     points: Sequence[LocatedObservation],
     indices: Sequence[int],
     anchor_positions: set[int],
+    coordinate_by_point: Mapping[int, tuple[float, float]],
 ) -> list[float | None]:
-    origin_latitude = sum(points[index].wgs_latitude for index in indices) / len(indices)
-    origin_longitude = sum(points[index].wgs_longitude for index in indices) / len(indices)
+    origin_latitude = sum(
+        coordinate_by_point.get(
+            index, (points[index].wgs_latitude, points[index].wgs_longitude)
+        )[0]
+        for index in indices
+    ) / len(indices)
+    origin_longitude = sum(
+        coordinate_by_point.get(
+            index, (points[index].wgs_latitude, points[index].wgs_longitude)
+        )[1]
+        for index in indices
+    ) / len(indices)
     coordinates = [
         _project_meters(
-            points[index].wgs_latitude,
-            points[index].wgs_longitude,
+            *coordinate_by_point.get(
+                index, (points[index].wgs_latitude, points[index].wgs_longitude)
+            ),
             origin_latitude,
             origin_longitude,
         )
@@ -327,7 +339,12 @@ def build_trajectory_representation(
     modes: ModeResult,
     *,
     config: TrajectoryConfig = TrajectoryConfig(),
+    coordinate_by_point: Mapping[int, tuple[float, float]] | None = None,
+    variant_kind: str = "cleaned_gps",
 ) -> TrajectoryRepresentation:
+    if variant_kind not in ("cleaned_gps", "smoothed_gps", "map_matched"):
+        raise ValueError("unsupported trajectory variant_kind")
+    coordinates = coordinate_by_point or {}
     anchor_reasons = _semantic_anchor_reasons(continuity, stays, trips, modes)
     segments: list[TrajectorySegment] = []
     sequence_number = 0
@@ -339,16 +356,22 @@ def build_trajectory_representation(
             for position, point_index in enumerate(point_indices)
             if point_index in anchor_reasons
         }
-        importance = _vertex_importance(points, point_indices, anchor_positions)
+        importance = _vertex_importance(
+            points, point_indices, anchor_positions, coordinates
+        )
         vertices: list[TrajectoryVertex] = []
         for position, point_index in enumerate(point_indices):
+            latitude, longitude = coordinates.get(
+                point_index,
+                (points[point_index].wgs_latitude, points[point_index].wgs_longitude),
+            )
             vertices.append(
                 TrajectoryVertex(
                     sequence_number=sequence_number,
                     point_index=point_index,
                     recorded_at=points[point_index].recorded_at,
-                    latitude=points[point_index].wgs_latitude,
-                    longitude=points[point_index].wgs_longitude,
+                    latitude=latitude,
+                    longitude=longitude,
                     importance_meters=importance[position],
                     is_interpolated=False,
                     anchor_reasons=tuple(sorted(anchor_reasons.get(point_index, ()))),
@@ -365,7 +388,7 @@ def build_trajectory_representation(
         )
     chunks = _chunks_from_segments(segments, config)
     return TrajectoryRepresentation(
-        variant_kind="cleaned_gps",
+        variant_kind=variant_kind,
         importance_algorithm="constrained_effective_area_v1",
         segments=tuple(segments),
         chunks=chunks,

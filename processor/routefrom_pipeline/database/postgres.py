@@ -12,6 +12,7 @@ from uuid import UUID, uuid4, uuid5
 
 from routefrom_pipeline.pipeline import ProcessedTrace
 from routefrom_pipeline.quality import haversine_meters
+from routefrom_pipeline.trajectory import TrajectoryRepresentation, TrajectoryVertex
 
 _STAGES = (
     "quality",
@@ -107,10 +108,10 @@ def _execute_many(
     rows: Sequence[Sequence[object]],
 ) -> None:
     if not rows:
-        row_counts[name] = 0
+        row_counts.setdefault(name, 0)
         return
     cursor.executemany(query, rows)
-    row_counts[name] = len(rows)
+    row_counts[name] = row_counts.get(name, 0) + len(rows)
 
 
 def _load_point_ids(
@@ -898,6 +899,15 @@ def _persist_connections(
     )
 
 
+def _trajectory_line_wkt(vertices: Sequence[TrajectoryVertex]) -> str | None:
+    if len(vertices) < 2:
+        return None
+    coordinates = ",".join(
+        f"{vertex.longitude:.12g} {vertex.latitude:.12g}" for vertex in vertices
+    )
+    return f"LINESTRING({coordinates})"
+
+
 def _persist_trajectory(
     cursor: Cursor,
     counts: dict[str, int],
@@ -909,14 +919,78 @@ def _persist_trajectory(
     leg_ids: Sequence[UUID],
     trace: ProcessedTrace,
 ) -> None:
-    representation = trace.trajectory
+    smoothed_point_count = len(trace.smoothing.points)
+    smoothing_guard_rate = (
+        trace.smoothing.displacement_limited_count / smoothed_point_count
+        if smoothed_point_count
+        else 1.0
+    )
+    smoothed_preferred = (
+        trace.smoothing.confidence >= 0.65 and smoothing_guard_rate <= 0.10
+    )
+    _persist_trajectory_representation(
+        cursor,
+        counts,
+        run_id,
+        stages,
+        dataset_id,
+        point_ids,
+        trip_ids,
+        leg_ids,
+        trace,
+        trace.trajectory,
+        confidence=None,
+        preferred=not smoothed_preferred,
+        associate=not smoothed_preferred,
+        fallback_reason=None,
+    )
+    _persist_trajectory_representation(
+        cursor,
+        counts,
+        run_id,
+        stages,
+        dataset_id,
+        point_ids,
+        trip_ids,
+        leg_ids,
+        trace,
+        trace.smoothed_trajectory,
+        confidence=trace.smoothing.confidence,
+        preferred=smoothed_preferred,
+        associate=smoothed_preferred,
+        fallback_reason=(
+            None
+            if smoothed_preferred
+            else "smoothing_confidence_or_guard_rate"
+        ),
+    )
+
+
+def _persist_trajectory_representation(
+    cursor: Cursor,
+    counts: dict[str, int],
+    run_id: UUID,
+    stages: Mapping[str, UUID],
+    dataset_id: UUID,
+    point_ids: Sequence[int],
+    trip_ids: Sequence[UUID],
+    leg_ids: Sequence[UUID],
+    trace: ProcessedTrace,
+    representation: TrajectoryRepresentation,
+    *,
+    confidence: float | None,
+    preferred: bool,
+    associate: bool,
+    fallback_reason: str | None,
+) -> None:
     variant_id = _entity_id(run_id, "trajectory_variants", representation.variant_kind)
     cursor.execute(
         """
         INSERT INTO app.trajectory_variants (
           id,processing_run_id,dataset_id,stage_run_id,variant_kind,confidence,
-          preferred_for_display,preferred_for_distance,importance_algorithm,metadata
-        ) VALUES (%s,%s,%s,%s,%s,1,true,true,%s,%s::jsonb)
+          preferred_for_display,preferred_for_distance,fallback_reason,
+          importance_algorithm,metadata
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
         """,
         (
             variant_id,
@@ -924,28 +998,49 @@ def _persist_trajectory(
             dataset_id,
             stages["trajectory"],
             representation.variant_kind,
+            confidence,
+            preferred,
+            preferred,
+            fallback_reason,
             representation.importance_algorithm,
-            _json({"time_partitioning": "calendar_independent_chunks"}),
+            _json(
+                {
+                    "time_partitioning": "calendar_independent_chunks",
+                    "source_observations_immutable": True,
+                    "smoothing_guard_rate": (
+                        trace.smoothing.displacement_limited_count
+                        / len(trace.smoothing.points)
+                        if trace.smoothing.points
+                        else 1.0
+                    ),
+                    "displacement_limited_count": (
+                        trace.smoothing.displacement_limited_count
+                        if representation.variant_kind == "smoothed_gps"
+                        else 0
+                    ),
+                }
+            ),
         ),
     )
-    counts["trajectory_variants"] = 1
+    counts["trajectory_variants"] = counts.get("trajectory_variants", 0) + 1
     segment_ids: dict[int, UUID] = {}
     segment_rows: list[Sequence[object]] = []
     vertex_rows: list[Sequence[object]] = []
     for segment in representation.segments:
-        segment_id = _entity_id(run_id, "trajectory_segments", str(segment.segment_index))
-        segment_ids[segment.segment_index] = segment_id
-        point_indices = tuple(
-            vertex.point_index for vertex in segment.vertices if vertex.point_index is not None
+        segment_id = _entity_id(
+            run_id,
+            "trajectory_segments",
+            f"{representation.variant_kind}:{segment.segment_index}",
         )
+        segment_ids[segment.segment_index] = segment_id
         distance = sum(
             haversine_meters(
-                trace.points[left].wgs_latitude,
-                trace.points[left].wgs_longitude,
-                trace.points[right].wgs_latitude,
-                trace.points[right].wgs_longitude,
+                left.latitude,
+                left.longitude,
+                right.latitude,
+                right.longitude,
             )
-            for left, right in zip(point_indices, point_indices[1:])
+            for left, right in zip(segment.vertices, segment.vertices[1:])
         )
         segment_rows.append(
             (
@@ -955,7 +1050,7 @@ def _persist_trajectory(
                 segment.segment_index,
                 segment.started_at,
                 _nonempty_end(segment.started_at, segment.ended_at),
-                _line_wkt(trace, point_indices),
+                _trajectory_line_wkt(segment.vertices),
                 len(segment.vertices),
                 distance,
                 segment.segment_index > 0,
@@ -1012,9 +1107,6 @@ def _persist_trajectory(
     )
     chunk_rows: list[Sequence[object]] = []
     for chunk in representation.chunks:
-        point_indices = tuple(
-            vertex.point_index for vertex in chunk.vertices if vertex.point_index is not None
-        )
         finite_importance = [
             vertex.importance_meters
             for vertex in chunk.vertices
@@ -1022,7 +1114,11 @@ def _persist_trajectory(
         ]
         chunk_rows.append(
             (
-                _entity_id(run_id, "trajectory_chunks", str(chunk.chunk_number)),
+                _entity_id(
+                    run_id,
+                    "trajectory_chunks",
+                    f"{representation.variant_kind}:{chunk.chunk_number}",
+                ),
                 variant_id,
                 segment_ids[chunk.segment_index],
                 chunk.chunk_number,
@@ -1033,7 +1129,7 @@ def _persist_trajectory(
                 len(chunk.vertices),
                 chunk.estimated_bytes,
                 chunk.has_leading_overlap,
-                _line_wkt(trace, point_indices),
+                _trajectory_line_wkt(chunk.vertices),
                 min(finite_importance) if finite_importance else None,
                 max(finite_importance) if finite_importance else None,
             )
@@ -1055,6 +1151,8 @@ def _persist_trajectory(
         [row[:12] + (row[11],) + row[12:] for row in chunk_rows],
     )
 
+    if not associate:
+        return
     segment_by_point: dict[int, UUID] = {}
     for segment in representation.segments:
         for vertex in segment.vertices:
