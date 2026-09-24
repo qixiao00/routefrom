@@ -30,15 +30,16 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
-import { loadWorkspacePreview } from "@/lib/workspace-client";
+import { loadViewportPaths, loadWorkspaceEvents, loadWorkspacePreview } from "@/lib/workspace-client";
 import {
   overlapsSelection,
-  selectPaths,
-  selectedDistanceMeters,
   type PreviewGap,
   type PreviewPlace,
   type PreviewStay,
+  type SelectedPath,
+  type WorkspaceEvents,
 } from "@/lib/workspace-data";
+import type { ViewportBounds, ViewportResponse } from "@/lib/workspace-viewport";
 import { type LayerId, useWorkspaceStore } from "@/lib/workspace-store";
 import type { TimeRange } from "@/lib/workspace-query";
 
@@ -95,10 +96,19 @@ function formatDistance(meters: number): string {
 }
 
 type SelectedEntity = PreviewStay | PreviewGap | PreviewPlace;
+const EMPTY_PATHS: SelectedPath[] = [];
 
 export function WorkspaceShell() {
   const [activeTool, setActiveTool] = useState("layers");
   const [fitRequest, setFitRequest] = useState(0);
+  const [visibleBounds, setVisibleBounds] = useState<ViewportBounds | null>(null);
+  const [viewportState, setViewportState] = useState<{
+    sourceKey: string;
+    response: ViewportResponse;
+  } | null>(null);
+  const [viewportError, setViewportError] = useState<string | null>(null);
+  const [eventState, setEventState] = useState<{ sourceKey: string; events: WorkspaceEvents } | null>(null);
+  const [eventError, setEventError] = useState<string | null>(null);
   const {
     status,
     error,
@@ -131,30 +141,78 @@ export function WorkspaceShell() {
     return () => controller.abort();
   }, [setData, setError, setLoading]);
 
-  const selectedPaths = useMemo(
-    () => (data ? selectPaths(data.paths, ranges) : []),
-    [data, ranges],
-  );
+  const rangeKey = JSON.stringify(ranges);
+  const sourceKey = `${data?.processing.runId ?? ""}:${rangeKey}`;
+  const detailZoom = Math.max(0, Math.min(22, Math.round(mapView.zoom)));
+  useEffect(() => {
+    if (!data || ranges.length === 0) return;
+    const controller = new AbortController();
+    setEventError(null);
+    loadWorkspaceEvents(data.dataset.id, data.processing.runId, ranges, controller.signal)
+      .then((events) => {
+        if (!controller.signal.aborted) setEventState({ sourceKey, events });
+      })
+      .catch((cause: unknown) => {
+        if (cause instanceof DOMException && cause.name === "AbortError") return;
+        setEventError(cause instanceof Error ? cause.message : "无法读取所选时间的事件。");
+      });
+    return () => controller.abort();
+  }, [data, rangeKey, sourceKey]);
+  useEffect(() => {
+    if (!data || !visibleBounds || ranges.length === 0) return;
+    const controller = new AbortController();
+    setViewportError(null);
+    loadViewportPaths(
+      data.dataset.id,
+      data.processing.runId,
+      ranges,
+      visibleBounds,
+      detailZoom,
+      controller.signal,
+    ).then((response) => {
+      if (!controller.signal.aborted) setViewportState({ sourceKey, response });
+    }).catch((cause: unknown) => {
+      if (cause instanceof DOMException && cause.name === "AbortError") return;
+      setViewportError(cause instanceof Error ? cause.message : "无法读取当前地图区域。");
+    });
+    return () => controller.abort();
+  }, [data, rangeKey, visibleBounds, detailZoom, sourceKey]);
+
+  const viewportResult = viewportState?.sourceKey === sourceKey ? viewportState.response : null;
+  const currentEvents = eventState?.sourceKey === sourceKey ? eventState.events : null;
+  const viewData = useMemo(() => data ? { ...data, ...currentEvents } : null, [data, currentEvents]);
+  const selectedPaths = viewportResult?.paths ?? EMPTY_PATHS;
   const selectedStays = useMemo(
-    () => data?.stays.filter((stay) => overlapsSelection(stay.start, stay.end, ranges)) ?? [],
-    [data, ranges],
+    () => viewData?.stays.filter((stay) => overlapsSelection(stay.start, stay.end, ranges)) ?? [],
+    [viewData, ranges],
   );
   const selectedGaps = useMemo(
-    () => data?.gaps.filter((gap) => overlapsSelection(gap.start, gap.end, ranges)) ?? [],
-    [data, ranges],
+    () => viewData?.gaps.filter((gap) => overlapsSelection(gap.start, gap.end, ranges)) ?? [],
+    [viewData, ranges],
   );
-  const distance = useMemo(() => selectedDistanceMeters(selectedPaths), [selectedPaths]);
+  const distance = viewportResult?.selectedDistanceMeters ?? 0;
+  const mapStays = useMemo(() => selectedStays.filter((stay) =>
+    visibleBounds && stay.position[0] >= visibleBounds[0] && stay.position[0] <= visibleBounds[2] &&
+    stay.position[1] >= visibleBounds[1] && stay.position[1] <= visibleBounds[3]
+  ), [selectedStays, visibleBounds]);
+  const mapGaps = useMemo(() => selectedGaps.filter((gap) =>
+    visibleBounds &&
+    Math.min(gap.startPosition[0], gap.endPosition[0]) <= visibleBounds[2] &&
+    Math.max(gap.startPosition[0], gap.endPosition[0]) >= visibleBounds[0] &&
+    Math.min(gap.startPosition[1], gap.endPosition[1]) <= visibleBounds[3] &&
+    Math.max(gap.startPosition[1], gap.endPosition[1]) >= visibleBounds[1]
+  ), [selectedGaps, visibleBounds]);
   const selectedDuration = useMemo(
     () => ranges.reduce((total, range) => total + (Date.parse(range.end) - Date.parse(range.start)) / 1000, 0),
     [ranges],
   );
   const selectedEntity: SelectedEntity | null = useMemo(() => {
-    if (!data || !selection) return null;
-    if (selection.kind === "stay") return data.stays.find((item) => item.id === selection.id) ?? null;
-    if (selection.kind === "gap") return data.gaps.find((item) => item.id === selection.id) ?? null;
-    if (selection.kind === "place") return data.places.find((item) => item.id === selection.id) ?? null;
+    if (!viewData || !selection) return null;
+    if (selection.kind === "stay") return viewData.stays.find((item) => item.id === selection.id) ?? null;
+    if (selection.kind === "gap") return viewData.gaps.find((item) => item.id === selection.id) ?? null;
+    if (selection.kind === "place") return viewData.places.find((item) => item.id === selection.id) ?? null;
     return null;
-  }, [data, selection]);
+  }, [viewData, selection]);
 
   return (
     <main className="workspace">
@@ -236,7 +294,7 @@ export function WorkspaceShell() {
         </div>
 
         <section className="panel-section">
-          <div className="section-title"><span>可视图层</span><small>{selectedPaths.length} 条连续路径</small></div>
+          <div className="section-title"><span>可视图层</span><small>{selectedPaths.length} 条视野内路径</small></div>
           <div className="layer-list">
             {layerDefinitions.map(({ id, label, description, icon: Icon, color }) => {
               const visible = visibleLayers[id];
@@ -272,21 +330,29 @@ export function WorkspaceShell() {
       </motion.aside>
 
       <section className="map-stage">
-        {data ? (
+        {viewData ? (
           <MapCanvas
-            data={data}
+            data={viewData}
             selectedPaths={selectedPaths}
-            selectedStays={selectedStays}
-            selectedGaps={selectedGaps}
+            selectedBounds={viewportResult?.selectedBounds ?? null}
+            selectedStays={mapStays}
+            selectedGaps={mapGaps}
             visibleLayers={visibleLayers}
             selection={selection}
             mapView={mapView}
             fitRequest={fitRequest}
             onMapViewChange={setMapView}
+            onViewportChange={setVisibleBounds}
             onSelect={setSelection}
           />
         ) : <div className="map-loading">{status === "error" ? "足迹尚未载入" : "正在读取真实足迹…"}</div>}
         <div className="map-vignette" />
+        {(viewportError || eventError) && status !== "error" && (
+          <div className="workspace-error" role="alert">
+            <AlertTriangle size={18} />
+            <div><strong>当前区域加载失败</strong><span>{viewportError || eventError}</span></div>
+          </div>
+        )}
         <div className="map-toolbar">
           <button className="active" type="button" onClick={() => setFitRequest((value) => value + 1)}><Focus size={16} />聚焦所选时间</button>
           <button type="button" aria-label="地图设置"><Settings2 size={16} /></button>
@@ -340,7 +406,7 @@ export function WorkspaceShell() {
         )}
       </motion.aside>
 
-      <Timeline data={data} ranges={ranges} cursorTime={cursorTime} selection={selection} onCursorChange={setCursorTime} onSelect={setSelection} />
+        <Timeline data={viewData} ranges={ranges} cursorTime={cursorTime} selection={selection} onCursorChange={setCursorTime} onSelect={setSelection} />
     </main>
   );
 }

@@ -27,7 +27,7 @@ ROUTEFROM_ENABLE_LOCAL_DATA_API=true
 ROUTEFROM_LOCAL_PREVIEW_PATH=C:/path/to/routefrom/data/generated/workspace-preview.json
 ```
 
-该端点只读取服务端环境变量配置的 JSON 文件，不把 CSV 路径或数据库连接串发给浏览器。它没有用户认证，因此默认关闭，不应直接部署到公网。
+本地 API 只读取服务端环境变量配置的 JSON 文件，不把 CSV 路径或数据库连接串发给浏览器。它没有用户认证，因此默认关闭，不应直接部署到公网。启动接口只发送工作区元数据和常去地点；时间线事件按所选时间区间请求，轨迹按当前地图视野、时间区间和缩放精度请求。平移时复用已经加载的邻近区域，超出范围才补载。
 
 ## 本地运行
 
@@ -42,6 +42,7 @@ corepack pnpm dev
 corepack pnpm test
 corepack pnpm typecheck
 corepack pnpm build
+corepack pnpm bench:viewport
 ```
 
-当前本地预览默认保留最多 15 万个轨迹顶点及其嵌套重要度；轨迹由地图上的单个 Canvas 图层按当前缩放精度绘制，放大时能恢复原始几何，不再叠加第二条 MapLibre 实线。deck.gl 二进制图层、热力图、聚合图层、百万点性能和完整服务端工作区 API 留到下一阶段。
+当前本地预览文件可保留最多 15 万个轨迹顶点及其嵌套重要度，但浏览器不会一次接收它们。单次区域响应默认最多 1.2 万个顶点；确认轨迹由单个 MapLibre/WebGL 图层绘制，不再逐帧在 Canvas 上重新投影。deck.gl 二进制图层、热力图、聚合图层、百万点性能和完整服务端工作区 API 留到下一阶段。

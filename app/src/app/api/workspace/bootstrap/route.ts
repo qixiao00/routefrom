@@ -20,7 +20,19 @@ export async function GET(): Promise<Response> {
     );
   }
   try {
-    return Response.json(await readLocalWorkspacePreview(), { headers: PRIVATE_HEADERS });
+    const preview = await readLocalWorkspacePreview();
+    const lastVertex = preview.paths.at(-1)?.vertices.at(-1);
+    return Response.json({
+      ...preview,
+      paths: [],
+      gaps: [],
+      stays: [],
+      trips: [],
+      modeLegs: [],
+      suggestedMapView: lastVertex
+        ? { longitude: lastVertex[1], latitude: lastVertex[2], zoom: 10, pitch: 0, bearing: 0 }
+        : null,
+    }, { headers: PRIVATE_HEADERS });
   } catch (error) {
     if (error instanceof LocalPreviewNotFoundError) {
       return Response.json(

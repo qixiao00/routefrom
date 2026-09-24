@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { FeatureCollection, LineString, Point } from "geojson";
+import type { FeatureCollection, LineString, MultiLineString, Point } from "geojson";
 import type { MapLayerMouseEvent, MapRef } from "react-map-gl/maplibre";
 import Map, { Layer, NavigationControl, Source } from "react-map-gl/maplibre";
 
-import { simplifySelectedPath } from "@/lib/workspace-data";
 import type {
   PreviewGap,
   PreviewStay,
@@ -13,10 +12,12 @@ import type {
   WorkspacePreview,
 } from "@/lib/workspace-data";
 import type { LayerId, MapView, SelectionKind } from "@/lib/workspace-store";
+import type { ViewportBounds } from "@/lib/workspace-viewport";
 
 interface MapCanvasProps {
   data: WorkspacePreview;
   selectedPaths: SelectedPath[];
+  selectedBounds: ViewportBounds | null;
   selectedStays: PreviewStay[];
   selectedGaps: PreviewGap[];
   visibleLayers: Record<LayerId, boolean>;
@@ -24,6 +25,7 @@ interface MapCanvasProps {
   mapView: MapView;
   fitRequest: number;
   onMapViewChange: (view: MapView) => void;
+  onViewportChange: (bounds: ViewportBounds) => void;
   onSelect: (selection: { kind: SelectionKind; id: string } | null) => void;
 }
 
@@ -58,6 +60,7 @@ const baseStyle = {
 export function MapCanvas({
   data,
   selectedPaths,
+  selectedBounds,
   selectedStays,
   selectedGaps,
   visibleLayers,
@@ -65,10 +68,28 @@ export function MapCanvas({
   mapView,
   fitRequest,
   onMapViewChange,
+  onViewportChange,
   onSelect,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
-  const overlayRef = useRef<HTMLCanvasElement>(null);
+  const handledFitRequest = useRef(0);
+  const lineData = useMemo<FeatureCollection<MultiLineString>>(() => {
+    const byRange = new globalThis.Map<number, number[][][]>();
+    for (const path of selectedPaths) {
+      if (path.vertices.length < 2) continue;
+      const pieces = byRange.get(path.rangeIndex) ?? [];
+      pieces.push(path.vertices.map((vertex) => [vertex[1], vertex[2]]));
+      byRange.set(path.rangeIndex, pieces);
+    }
+    return {
+      type: "FeatureCollection",
+      features: [...byRange].map(([rangeIndex, coordinates]) => ({
+        type: "Feature",
+        properties: { paletteIndex: rangeIndex % 2 },
+        geometry: { type: "MultiLineString", coordinates },
+      })),
+    };
+  }, [selectedPaths]);
   const gapData = useMemo<FeatureCollection<LineString>>(
     () => ({
       type: "FeatureCollection",
@@ -116,124 +137,37 @@ export function MapCanvas({
   );
 
   const fitSelection = useCallback(() => {
-    if (!mapRef.current) return;
-    let minLongitude = Infinity;
-    let minLatitude = Infinity;
-    let maxLongitude = -Infinity;
-    let maxLatitude = -Infinity;
-    for (const path of selectedPaths) {
-      for (const vertex of path.vertices) {
-        minLongitude = Math.min(minLongitude, vertex[1]);
-        maxLongitude = Math.max(maxLongitude, vertex[1]);
-        minLatitude = Math.min(minLatitude, vertex[2]);
-        maxLatitude = Math.max(maxLatitude, vertex[2]);
-      }
-    }
-    if (!Number.isFinite(minLongitude)) return;
+    if (!mapRef.current || !selectedBounds) return;
     mapRef.current.fitBounds(
       [
-        [minLongitude, minLatitude],
-        [maxLongitude, maxLatitude],
+        [selectedBounds[0], selectedBounds[1]],
+        [selectedBounds[2], selectedBounds[3]],
       ],
       { padding: { top: 80, right: 80, bottom: 120, left: 80 }, duration: 850, maxZoom: 14 },
     );
-  }, [selectedPaths]);
+  }, [selectedBounds]);
 
-  const drawOverlay = useCallback(() => {
+  const reportViewport = useCallback(() => {
     const map = mapRef.current?.getMap();
-    const canvas = overlayRef.current;
-    if (!map || !canvas) return;
-    const bounds = map.getContainer().getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.max(1, Math.round(bounds.width * dpr));
-    const height = Math.max(1, Math.round(bounds.height * dpr));
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-    }
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    context.clearRect(0, 0, bounds.width, bounds.height);
-
-    if (visibleLayers.track) {
-      const zoom = map.getZoom();
-      const latitude = map.getCenter().lat;
-      const toleranceMeters =
-        (156_543.03 * Math.cos((latitude * Math.PI) / 180) / 2 ** zoom) * 0.8;
-      selectedPaths.forEach((path) => {
-        if (path.vertices.length < 2) return;
-        const vertices = simplifySelectedPath(path, toleranceMeters);
-        context.beginPath();
-        vertices.forEach((vertex, index) => {
-          const point = map.project([vertex[1], vertex[2]]);
-          if (index === 0) context.moveTo(point.x, point.y);
-          else context.lineTo(point.x, point.y);
-        });
-        context.lineCap = "round";
-        context.lineJoin = "round";
-        context.strokeStyle = path.rangeIndex % 2 === 0
-          ? (zoom < 9 ? "rgba(155,226,207,.65)" : "rgba(155,226,207,.88)")
-          : (zoom < 9 ? "rgba(125,175,239,.65)" : "rgba(125,175,239,.88)");
-        context.shadowBlur = zoom < 10 ? 0 : 3;
-        context.shadowColor = path.rangeIndex % 2 === 0 ? "rgba(141,216,196,.5)" : "rgba(114,167,255,.5)";
-        context.lineWidth = zoom < 9 ? 1.25 : 1.8;
-        context.stroke();
-      });
-      context.shadowBlur = 0;
-    }
-
-    if (visibleLayers.gaps) {
-      context.setLineDash([4, 5]);
-      context.lineWidth = 1.2;
-      context.strokeStyle = "rgba(190,199,195,.65)";
-      selectedGaps.forEach((gap) => {
-        const start = map.project(gap.startPosition);
-        const end = map.project(gap.endPosition);
-        context.beginPath();
-        context.moveTo(start.x, start.y);
-        context.lineTo(end.x, end.y);
-        context.stroke();
-      });
-      context.setLineDash([]);
-    }
-
-    if (visibleLayers.stays) {
-      selectedStays.forEach((stay) => {
-        const point = map.project(stay.position);
-        context.beginPath();
-        context.arc(point.x, point.y, selection?.kind === "stay" && selection.id === stay.id ? 5 : 3, 0, Math.PI * 2);
-        context.fillStyle = stay.kind === "visit" ? "rgba(217,166,87,.92)" : "rgba(157,167,163,.78)";
-        context.fill();
-      });
-    }
-
-    if (visibleLayers.places) {
-      data.places.forEach((place) => {
-        const point = map.project(place.position);
-        context.beginPath();
-        context.arc(point.x, point.y, 2.5 + place.frequentProbability * 3.5, 0, Math.PI * 2);
-        context.fillStyle = "rgba(114,167,255,.24)";
-        context.fill();
-        context.strokeStyle = "rgba(168,199,255,.72)";
-        context.lineWidth = 1;
-        context.stroke();
-      });
-    }
-  }, [data.places, selectedGaps, selectedPaths, selectedStays, selection, visibleLayers]);
+    if (!map) return;
+    const bounds = map.getBounds();
+    const west = Math.max(-180, bounds.getWest());
+    const south = Math.max(-90, bounds.getSouth());
+    const east = Math.min(180, bounds.getEast());
+    const north = Math.min(90, bounds.getNorth());
+    onViewportChange(west < east && south < north
+      ? [west, south, east, north]
+      : [-180, -90, 180, 90]);
+  }, [onViewportChange]);
 
   useEffect(() => {
-    if (selectedPaths.length === 0) return;
+    if (fitRequest === 0 || fitRequest === handledFitRequest.current || !selectedBounds) return;
+    handledFitRequest.current = fitRequest;
     const frame = requestAnimationFrame(fitSelection);
     return () => {
       cancelAnimationFrame(frame);
     };
-  }, [fitRequest, fitSelection, selectedPaths.length]);
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(drawOverlay);
-    return () => cancelAnimationFrame(frame);
-  }, [drawOverlay]);
+  }, [fitRequest, fitSelection, selectedBounds]);
 
   useEffect(() => {
     const coordinate = selection?.kind === "stay"
@@ -252,7 +186,6 @@ export function MapCanvas({
   }
 
   return (
-    <>
     <Map
       ref={mapRef}
       initialViewState={mapView}
@@ -261,17 +194,25 @@ export function MapCanvas({
       reuseMaps
       interactiveLayerIds={["stay-points", "gap-lines", "place-points"]}
       onClick={handleClick}
-      onRender={drawOverlay}
-      onMoveEnd={(event) => onMapViewChange({
-        longitude: event.viewState.longitude,
-        latitude: event.viewState.latitude,
-        zoom: event.viewState.zoom,
-        pitch: event.viewState.pitch,
-        bearing: event.viewState.bearing,
-      })}
+      onLoad={reportViewport}
+      onResize={reportViewport}
+      onMoveEnd={(event) => {
+        onMapViewChange({
+          longitude: event.viewState.longitude,
+          latitude: event.viewState.latitude,
+          zoom: event.viewState.zoom,
+          pitch: event.viewState.pitch,
+          bearing: event.viewState.bearing,
+        });
+        reportViewport();
+      }}
       cursor="default"
     >
       <NavigationControl position="bottom-right" visualizePitch />
+
+      <Source id="observed-tracks" type="geojson" data={lineData}>
+        <Layer id="track-lines" type="line" layout={{ "line-cap": "round", "line-join": "round" }} paint={{ "line-color": ["case", ["==", ["get", "paletteIndex"], 0], "#9be2cf", "#7dafef"], "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1, 10, 1.4, 15, 2.2], "line-opacity": visibleLayers.track ? 0.82 : 0 }} />
+      </Source>
 
       <Source id="unknown-gaps" type="geojson" data={gapData}>
         <Layer id="gap-lines" type="line" layout={{ "line-cap": "round" }} paint={{ "line-color": "#a3aea9", "line-width": 1.5, "line-opacity": visibleLayers.gaps ? 0.62 : 0, "line-dasharray": [2, 2.4] }} />
@@ -286,7 +227,5 @@ export function MapCanvas({
         <Layer id="place-labels" type="symbol" minzoom={10} layout={{ "text-field": ["get", "name"], "text-size": 11, "text-offset": [0, 1.4], "text-anchor": "top", "text-allow-overlap": false }} paint={{ "text-color": "#c8d7e9", "text-halo-color": "#0a0e10", "text-halo-width": 1.5, "text-opacity": visibleLayers.places ? 0.78 : 0 }} />
       </Source>
     </Map>
-    <canvas ref={overlayRef} className="map-data-overlay" aria-hidden="true" />
-    </>
   );
 }

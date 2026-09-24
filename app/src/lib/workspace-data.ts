@@ -91,6 +91,13 @@ export interface WorkspacePreview {
     modeLegCount: number;
   };
   suggestedRanges: TimeRange[];
+  suggestedMapView?: {
+    longitude: number;
+    latitude: number;
+    zoom: number;
+    pitch: number;
+    bearing: number;
+  } | null;
   paths: PreviewPath[];
   gaps: PreviewGap[];
   stays: PreviewStay[];
@@ -98,6 +105,8 @@ export interface WorkspacePreview {
   modeLegs: PreviewModeLeg[];
   places: PreviewPlace[];
 }
+
+export type WorkspaceEvents = Pick<WorkspacePreview, "gaps" | "stays" | "trips" | "modeLegs">;
 
 export interface SelectedPath extends PreviewPath {
   rangeIndex: number;
@@ -137,6 +146,11 @@ export function selectPaths(paths: readonly PreviewPath[], ranges: readonly Time
     const rangeStart = Date.parse(range.start);
     const rangeEnd = Date.parse(range.end);
     for (const path of paths) {
+      if (
+        path.vertices.length < 2 ||
+        Date.parse(path.vertices.at(-1)![0]) < rangeStart ||
+        Date.parse(path.vertices[0][0]) >= rangeEnd
+      ) continue;
       const vertices: PreviewVertex[] = [];
       for (let index = 0; index + 1 < path.vertices.length; index += 1) {
         const left = path.vertices[index];

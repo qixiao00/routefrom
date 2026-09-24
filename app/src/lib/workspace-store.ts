@@ -66,6 +66,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           error: null,
           ranges: state.ranges.length > 0 ? state.ranges : data.suggestedRanges,
           cursorTime: state.cursorTime ?? data.suggestedRanges[0]?.start ?? null,
+          mapView: data.suggestedMapView &&
+            state.mapView.longitude === initialMapView.longitude &&
+            state.mapView.latitude === initialMapView.latitude &&
+            state.mapView.zoom === initialMapView.zoom
+            ? data.suggestedMapView
+            : state.mapView,
         })),
       setError: (message) => set({ status: "error", error: message }),
       toggleLayer: (layer) =>
