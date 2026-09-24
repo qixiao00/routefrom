@@ -12,7 +12,8 @@
     "test": "node --test --experimental-strip-types src/lib/*.test.ts",
     "test:query": "node --test --experimental-strip-types src/lib/workspace-query.test.ts",
     "bench:viewport": "node --experimental-strip-types scripts/benchmark-viewport.mjs",
-    "audit:geometry": "node --experimental-strip-types scripts/audit-viewport-geometry.mjs"
+    "audit:geometry": "node --experimental-strip-types scripts/audit-viewport-geometry.mjs",
+    "audit:visual-data": "node --experimental-strip-types scripts/export-viewport-audit.mjs"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "5.3.0",
