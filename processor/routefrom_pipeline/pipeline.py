@@ -47,7 +47,7 @@ from routefrom_pipeline.trajectory import (
     build_trajectory_representation,
 )
 
-ALGORITHM_VERSION = "quality-continuity-sampling-survival-motion-stays-trips-places-modes-smoothing-map-matching-trajectory-v6"
+ALGORITHM_VERSION = "quality-continuity-sampling-survival-motion-stays-trips-places-modes-smoothing-map-matching-trajectory-v7"
 
 
 @dataclass(frozen=True, slots=True)

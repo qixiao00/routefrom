@@ -180,7 +180,7 @@ export function overlapsSelection(
   return ranges.some((range) => start < range.end && end > range.start);
 }
 
-function haversine(left: PreviewVertex, right: PreviewVertex): number {
+export function haversineMeters(left: PreviewVertex, right: PreviewVertex): number {
   const radius = 6_371_008.8;
   const latitudeA = (left[2] * Math.PI) / 180;
   const latitudeB = (right[2] * Math.PI) / 180;
@@ -197,7 +197,7 @@ export function selectedDistanceMeters(paths: readonly SelectedPath[]): number {
     (total, path) =>
       total +
       path.vertices.slice(1).reduce(
-        (distance, vertex, index) => distance + haversine(path.vertices[index], vertex),
+        (distance, vertex, index) => distance + haversineMeters(path.vertices[index], vertex),
         0,
       ),
     0,

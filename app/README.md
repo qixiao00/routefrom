@@ -43,6 +43,7 @@ corepack pnpm test
 corepack pnpm typecheck
 corepack pnpm build
 corepack pnpm bench:viewport
+corepack pnpm audit:geometry
 ```
 
-当前本地预览文件可保留最多 15 万个轨迹顶点及其嵌套重要度，但浏览器不会一次接收它们。单次区域响应默认最多 1.2 万个顶点；确认轨迹由单个 MapLibre/WebGL 图层绘制，不再逐帧在 Canvas 上重新投影。deck.gl 二进制图层、热力图、聚合图层、百万点性能和完整服务端工作区 API 留到下一阶段。
+当前本地预览文件可保留最多 15 万个轨迹顶点及其嵌套重要度，但浏览器按地图视野、时间范围和缩放精度请求。默认不再使用会压坏曲线的固定 1.2 万点截断；处理器和视野裁剪均按最大几何偏离量保点。普通移动、两观测点超过 2 km 的稀疏连接、航空／高速候选分层；后两类默认隐藏、可手动开启。确认距离仍统计完整时间选择。轨迹由 MapLibre/WebGL 绘制，不再逐帧在 Canvas 上重新投影。deck.gl 二进制图层、热力图、聚合图层、百万点性能和完整服务端工作区 API 留到下一阶段。

@@ -8,15 +8,14 @@ import Map, { Layer, NavigationControl, Source } from "react-map-gl/maplibre";
 import type {
   PreviewGap,
   PreviewStay,
-  SelectedPath,
   WorkspacePreview,
 } from "@/lib/workspace-data";
 import type { LayerId, MapView, SelectionKind } from "@/lib/workspace-store";
-import type { ViewportBounds } from "@/lib/workspace-viewport";
+import type { ViewportBounds, ViewportPath } from "@/lib/workspace-viewport";
 
 interface MapCanvasProps {
   data: WorkspacePreview;
-  selectedPaths: SelectedPath[];
+  selectedPaths: ViewportPath[];
   selectedBounds: ViewportBounds | null;
   selectedStays: PreviewStay[];
   selectedGaps: PreviewGap[];
@@ -74,22 +73,36 @@ export function MapCanvas({
   const mapRef = useRef<MapRef>(null);
   const handledFitRequest = useRef(0);
   const lineData = useMemo<FeatureCollection<MultiLineString>>(() => {
-    const byRange = new globalThis.Map<number, number[][][]>();
+    const byClass = new globalThis.Map<string, {
+      rangeIndex: number;
+      movementClass: ViewportPath["movementClass"];
+      coordinates: number[][][];
+    }>();
     for (const path of selectedPaths) {
       if (path.vertices.length < 2) continue;
-      const pieces = byRange.get(path.rangeIndex) ?? [];
-      pieces.push(path.vertices.map((vertex) => [vertex[1], vertex[2]]));
-      byRange.set(path.rangeIndex, pieces);
+      if (
+        (path.movementClass === "ordinary" && !visibleLayers.track) ||
+        (path.movementClass === "sparse" && !visibleLayers.sparse) ||
+        (path.movementClass === "high_speed" && !visibleLayers.highSpeed)
+      ) continue;
+      const key = `${path.rangeIndex}:${path.movementClass}`;
+      const group = byClass.get(key) ?? {
+        rangeIndex: path.rangeIndex,
+        movementClass: path.movementClass,
+        coordinates: [],
+      };
+      group.coordinates.push(path.vertices.map((vertex) => [vertex[1], vertex[2]]));
+      byClass.set(key, group);
     }
     return {
       type: "FeatureCollection",
-      features: [...byRange].map(([rangeIndex, coordinates]) => ({
+      features: [...byClass.values()].map(({ rangeIndex, movementClass, coordinates }) => ({
         type: "Feature",
-        properties: { paletteIndex: rangeIndex % 2 },
+        properties: { paletteIndex: rangeIndex % 2, movementClass },
         geometry: { type: "MultiLineString", coordinates },
       })),
     };
-  }, [selectedPaths]);
+  }, [selectedPaths, visibleLayers.track, visibleLayers.sparse, visibleLayers.highSpeed]);
   const gapData = useMemo<FeatureCollection<LineString>>(
     () => ({
       type: "FeatureCollection",
@@ -211,7 +224,9 @@ export function MapCanvas({
       <NavigationControl position="bottom-right" visualizePitch />
 
       <Source id="observed-tracks" type="geojson" data={lineData}>
-        <Layer id="track-lines" type="line" layout={{ "line-cap": "round", "line-join": "round" }} paint={{ "line-color": ["case", ["==", ["get", "paletteIndex"], 0], "#9be2cf", "#7dafef"], "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1, 10, 1.4, 15, 2.2], "line-opacity": visibleLayers.track ? 0.82 : 0 }} />
+        <Layer id="track-lines" type="line" filter={["==", ["get", "movementClass"], "ordinary"]} layout={{ "line-cap": "round", "line-join": "round" }} paint={{ "line-color": ["case", ["==", ["get", "paletteIndex"], 0], "#9be2cf", "#7dafef"], "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1, 10, 1.4, 15, 2.2], "line-opacity": visibleLayers.track ? 0.82 : 0 }} />
+        <Layer id="sparse-lines" type="line" filter={["==", ["get", "movementClass"], "sparse"]} layout={{ "line-cap": "butt", "line-join": "round" }} paint={{ "line-color": "#9aa8a5", "line-width": ["interpolate", ["linear"], ["zoom"], 4, 0.8, 10, 1.1, 15, 1.5], "line-opacity": visibleLayers.sparse ? 0.45 : 0, "line-dasharray": [2, 3] }} />
+        <Layer id="high-speed-lines" type="line" filter={["==", ["get", "movementClass"], "high_speed"]} layout={{ "line-cap": "butt", "line-join": "round" }} paint={{ "line-color": "#8aa9bb", "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1, 10, 1.3, 15, 1.9], "line-opacity": visibleLayers.highSpeed ? 0.58 : 0, "line-dasharray": [3, 2.5] }} />
       </Source>
 
       <Source id="unknown-gaps" type="geojson" data={gapData}>

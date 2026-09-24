@@ -19,7 +19,7 @@ const last = preview.paths.at(-1)?.vertices.at(-1);
 if (!last) throw new Error("preview has no trajectory vertices");
 
 const started = performance.now();
-const selection = buildViewportSelection(preview.paths, preview.suggestedRanges);
+const selection = buildViewportSelection(preview.paths, preview.suggestedRanges, preview.modeLegs);
 const selectedAt = performance.now();
 const bounds = [last[1] - 0.4, last[2] - 0.3, last[1] + 0.4, last[2] + 0.3];
 const nearby = queryViewportSelection(selection, bounds, 11);
@@ -29,7 +29,7 @@ const overviewAt = performance.now();
 const allTimeSelection = buildViewportSelection(preview.paths, [{
   start: preview.dataset.startedAt,
   end: preview.dataset.endedAt,
-}]);
+}], preview.modeLegs);
 const allTimeAt = performance.now();
 const allTimeOverview = queryViewportSelection(allTimeSelection, [-180, -90, 180, 90], 4);
 const allTimeQueryAt = performance.now();

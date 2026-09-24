@@ -60,7 +60,7 @@ export async function POST(request: Request): Promise<Response> {
       cachedSelection = {
         preview,
         rangeKey,
-        selection: buildViewportSelection(preview.paths, query.ranges),
+        selection: buildViewportSelection(preview.paths, query.ranges, preview.modeLegs),
       };
     }
     return Response.json(

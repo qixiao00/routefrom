@@ -6,7 +6,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { normalizeTimeRanges, type TimeRange } from "./workspace-query";
 import type { WorkspacePreview } from "./workspace-data";
 
-export type LayerId = "track" | "stays" | "gaps" | "places";
+export type LayerId = "track" | "sparse" | "highSpeed" | "stays" | "gaps" | "places";
 export type SelectionKind = "stay" | "gap" | "trip" | "place" | "leg";
 
 export interface MapView {
@@ -54,7 +54,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       error: null,
       data: null,
       ranges: [],
-      visibleLayers: { track: true, stays: true, gaps: true, places: true },
+      visibleLayers: { track: true, sparse: false, highSpeed: false, stays: true, gaps: true, places: true },
       selection: null,
       cursorTime: null,
       mapView: initialMapView,

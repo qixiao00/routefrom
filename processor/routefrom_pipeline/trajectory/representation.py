@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import heapq
 import math
 from dataclasses import dataclass
 from datetime import datetime
@@ -147,19 +146,24 @@ def _project_meters(
     return x, y
 
 
-def _triangle_height(
-    previous: tuple[float, float],
-    current: tuple[float, float],
-    following: tuple[float, float],
+def _distance_to_segment(
+    start: tuple[float, float],
+    point: tuple[float, float],
+    end: tuple[float, float],
 ) -> float:
-    base = math.hypot(following[0] - previous[0], following[1] - previous[1])
-    if base <= 1e-9:
-        return math.hypot(current[0] - previous[0], current[1] - previous[1])
-    twice_area = abs(
-        (current[0] - previous[0]) * (following[1] - previous[1])
-        - (current[1] - previous[1]) * (following[0] - previous[0])
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    length_squared = dx * dx + dy * dy
+    if length_squared <= 1e-18:
+        return math.hypot(point[0] - start[0], point[1] - start[1])
+    fraction = max(
+        0.0,
+        min(1.0, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / length_squared),
     )
-    return twice_area / base
+    return math.hypot(
+        point[0] - (start[0] + fraction * dx),
+        point[1] - (start[1] + fraction * dy),
+    )
 
 
 def _assign_interval_importance(
@@ -170,54 +174,44 @@ def _assign_interval_importance(
 ) -> None:
     if end - start <= 1:
         return
-    previous = {index: index - 1 for index in range(start, end + 1)}
-    following = {index: index + 1 for index in range(start, end + 1)}
-    previous[start] = -1
-    following[end] = -1
-    versions = {index: 0 for index in range(start, end + 1)}
-    removed: set[int] = set()
-    heap: list[tuple[float, int, int]] = []
-
-    def enqueue(index: int) -> None:
-        if not start < index < end or index in removed:
-            return
-        left = previous[index]
-        right = following[index]
-        if left < start or right > end:
-            return
-        versions[index] += 1
-        heapq.heappush(
-            heap,
-            (
-                _triangle_height(
-                    coordinates[left],
-                    coordinates[index],
-                    coordinates[right],
-                ),
-                index,
-                versions[index],
-            ),
-        )
-
-    for index in range(start + 1, end):
-        enqueue(index)
-    last_importance = 0.0
-    while heap:
-        height, index, version = heapq.heappop(heap)
-        if index in removed or version != versions[index]:
+    # A local triangle-height score can discard every point on a gradual bend,
+    # replacing the whole curve with one long invented chord. The RDP split
+    # score bounds the deviation from each retained chord instead. A child
+    # split can deviate more than its parent after the parent chord changes;
+    # promote that score through its ancestors so a child is never required
+    # while a parent is omitted at the same tolerance.
+    pending = [(start, end, False)]
+    splits: dict[tuple[int, int], tuple[int, float]] = {}
+    effective_scores: dict[tuple[int, int], float] = {}
+    while pending:
+        left, right, visited = pending.pop()
+        if right - left <= 1:
             continue
-        effective_importance = max(last_importance, height)
-        importance[index] = effective_importance
-        last_importance = effective_importance
-        removed.add(index)
-        left = previous[index]
-        right = following[index]
-        if left >= start:
-            following[left] = right
-        if right <= end:
-            previous[right] = left
-        enqueue(left)
-        enqueue(right)
+        if visited:
+            split, deviation = splits[(left, right)]
+            effective = max(
+                deviation,
+                effective_scores.get((left, split), 0.0),
+                effective_scores.get((split, right), 0.0),
+            )
+            importance[split] = effective
+            effective_scores[(left, right)] = effective
+            continue
+        split = left + 1
+        deviation = -1.0
+        for index in range(left + 1, right):
+            current = _distance_to_segment(
+                coordinates[left], coordinates[index], coordinates[right]
+            )
+            if current > deviation:
+                deviation = current
+                split = index
+        if deviation <= 1e-9:
+            continue
+        splits[(left, right)] = (split, deviation)
+        pending.append((left, right, True))
+        pending.append((left, split, False))
+        pending.append((split, right, False))
 
 
 def _vertex_importance(
@@ -389,7 +383,7 @@ def build_trajectory_representation(
     chunks = _chunks_from_segments(segments, config)
     return TrajectoryRepresentation(
         variant_kind=variant_kind,
-        importance_algorithm="constrained_effective_area_v1",
+        importance_algorithm="constrained_rdp_deviation_v1",
         segments=tuple(segments),
         chunks=chunks,
     )
@@ -530,7 +524,7 @@ def build_hybrid_trajectory_representation(
     built_segments = tuple(segments)
     return TrajectoryRepresentation(
         variant_kind="map_matched",
-        importance_algorithm="constrained_effective_area_v1",
+        importance_algorithm="constrained_rdp_deviation_v1",
         segments=built_segments,
         chunks=_chunks_from_segments(built_segments, config),
     )

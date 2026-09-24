@@ -21,6 +21,7 @@ import {
   MapPin,
   MoreHorizontal,
   PanelLeftClose,
+  Plane,
   Plus,
   RefreshCw,
   Route,
@@ -36,10 +37,9 @@ import {
   type PreviewGap,
   type PreviewPlace,
   type PreviewStay,
-  type SelectedPath,
   type WorkspaceEvents,
 } from "@/lib/workspace-data";
-import type { ViewportBounds, ViewportResponse } from "@/lib/workspace-viewport";
+import type { ViewportBounds, ViewportPath, ViewportResponse } from "@/lib/workspace-viewport";
 import { type LayerId, useWorkspaceStore } from "@/lib/workspace-store";
 import type { TimeRange } from "@/lib/workspace-query";
 
@@ -57,7 +57,9 @@ const layerDefinitions: Array<{
   color: string;
   icon: typeof Route;
 }> = [
-  { id: "track", label: "观测轨迹", description: "连续确认段", color: "mint", icon: Route },
+  { id: "track", label: "观测轨迹", description: "普通移动的确认段", color: "mint", icon: Route },
+  { id: "sparse", label: "稀疏连接", description: "两点间超过 2 km · 路线未观测", color: "slate", icon: Route },
+  { id: "highSpeed", label: "高速移动", description: "航空及高速候选 · 单独显示", color: "blue", icon: Plane },
   { id: "stays", label: "静止事件", description: "访问、暂停与未决", color: "amber", icon: MapPin },
   { id: "gaps", label: "未知缺口", description: "不计入确认统计", color: "slate", icon: TriangleAlert },
   { id: "places", label: "常去地点", description: "概率聚类结果", color: "blue", icon: Focus },
@@ -96,7 +98,7 @@ function formatDistance(meters: number): string {
 }
 
 type SelectedEntity = PreviewStay | PreviewGap | PreviewPlace;
-const EMPTY_PATHS: SelectedPath[] = [];
+const EMPTY_PATHS: ViewportPath[] = [];
 
 export function WorkspaceShell() {
   const [activeTool, setActiveTool] = useState("layers");
@@ -298,7 +300,8 @@ export function WorkspaceShell() {
           <div className="layer-list">
             {layerDefinitions.map(({ id, label, description, icon: Icon, color }) => {
               const visible = visibleLayers[id];
-              const count = id === "stays" ? selectedStays.length : id === "gaps" ? selectedGaps.length : id === "places" ? data?.places.length ?? 0 : selectedPaths.reduce((sum, path) => sum + path.vertices.length, 0);
+              const movementClass = id === "highSpeed" ? "high_speed" : id === "sparse" ? "sparse" : "ordinary";
+              const count = id === "stays" ? selectedStays.length : id === "gaps" ? selectedGaps.length : id === "places" ? data?.places.length ?? 0 : selectedPaths.reduce((sum, path) => sum + (path.movementClass === movementClass ? path.vertices.length - 1 : 0), 0);
               return (
                 <button key={id} type="button" className={`layer-item ${visible ? "is-visible" : ""}`} onClick={() => toggleLayer(id)}>
                   <span className={`layer-icon ${color}`}><Icon size={15} /></span>
@@ -388,7 +391,7 @@ export function WorkspaceShell() {
             <div className="selection-overview">
               <span className="selection-glyph"><CalendarRange size={21} /></span>
               <strong>{ranges.length} 个区间</strong>
-              <span>地图和时间轴仅显示这些时间，区间之间不会连线。</span>
+              <span>区间之间不会连线。稀疏与高速轨迹可在左侧开启；确认距离仍包含全部确认段。</span>
             </div>
             <div className="metric-grid">
               <div><span>确认距离</span><strong>{formatDistance(distance)}</strong></div>

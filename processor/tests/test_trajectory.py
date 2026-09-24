@@ -13,6 +13,10 @@ from routefrom_pipeline.trajectory import (
     normalize_time_ranges,
     query_trajectory,
 )
+from routefrom_pipeline.trajectory.representation import (
+    _assign_interval_importance,
+    _distance_to_segment,
+)
 
 
 def point(
@@ -51,6 +55,62 @@ def point(
 
 
 class TrajectoryTests(unittest.TestCase):
+    def test_gradual_curve_never_collapses_into_a_long_chord(self) -> None:
+        coordinates = [
+            (index * 50.0, 1000.0 * math.sin(math.pi * index / 200))
+            for index in range(201)
+        ]
+        importance: list[float | None] = [0.0] * len(coordinates)
+        importance[0] = importance[-1] = None
+        _assign_interval_importance(coordinates, 0, len(coordinates) - 1, importance)
+
+        selected = [
+            index
+            for index, score in enumerate(importance)
+            if score is None or score >= 50.0
+        ]
+        self.assertGreater(len(selected), 2)
+        self.assertLess(len(selected), len(coordinates))
+        for left, right in zip(selected, selected[1:]):
+            self.assertLessEqual(
+                max(
+                    _distance_to_segment(
+                        coordinates[left], coordinates[index], coordinates[right]
+                    )
+                    for index in range(left, right + 1)
+                ),
+                50.0 + 1e-7,
+            )
+
+    def test_nested_kinks_respect_every_display_tolerance(self) -> None:
+        coordinates = [
+            (
+                index * 10.0,
+                100.0 * math.sin(index / 10) + 30.0 * math.sin(index / 2),
+            )
+            for index in range(101)
+        ]
+        importance: list[float | None] = [0.0] * len(coordinates)
+        importance[0] = importance[-1] = None
+        _assign_interval_importance(coordinates, 0, len(coordinates) - 1, importance)
+
+        for tolerance in (5.0, 10.0, 20.0, 50.0):
+            selected = [
+                index
+                for index, score in enumerate(importance)
+                if score is None or score >= tolerance
+            ]
+            for left, right in zip(selected, selected[1:]):
+                self.assertLessEqual(
+                    max(
+                        _distance_to_segment(
+                            coordinates[left], coordinates[index], coordinates[right]
+                        )
+                        for index in range(left, right + 1)
+                    ),
+                    tolerance + 1e-7,
+                )
+
     def test_time_ranges_are_sorted_and_unionized_without_calendar_granularity(self) -> None:
         base = datetime(2026, 7, 1, tzinfo=UTC)
         ranges = [
