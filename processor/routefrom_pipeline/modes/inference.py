@@ -403,6 +403,14 @@ def _bell(value: float, center: float, spread: float) -> float:
     return -0.5 * ((value - center) / spread) ** 2
 
 
+def _air_cruise_log_likelihood(speed_mps: float) -> float:
+    if speed_mps < 75.0:
+        return _bell(speed_mps, 75.0, 20.0)
+    if speed_mps > 280.0:
+        return _bell(speed_mps, 280.0, 40.0)
+    return 0.0
+
+
 def _mode_logits(
     features: ModeFeatureVector,
 ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
@@ -440,11 +448,11 @@ def _mode_logits(
         "scooter": (7.0, 4.0),
         "metro": (15.0, 8.0),
         "train": (25.0, 14.0),
-        "air": (75.0, 35.0),
         "boat": (8.0, 5.0),
     }
     for mode, (center, spread) in speed_models.items():
         add(mode, "speed_p50", _bell(speed, center, spread))
+    add("air", "speed_p50", _air_cruise_log_likelihood(speed))
 
     child_counts: dict[str, int] = {}
     for mode in _LEAF_MODES:

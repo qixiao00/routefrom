@@ -61,7 +61,7 @@ vertices for an interactive MapLibre preview.
 ```powershell
 routefrom-preview "C:\private\linggan.csv" `
   --output ".\data\generated\workspace-preview.json" `
-  --vertex-budget 15000
+  --vertex-budget 150000
 ```
 
 The source CSV and generated preview are private local artifacts and must not

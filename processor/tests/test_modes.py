@@ -49,6 +49,17 @@ class ModeInferenceTests(unittest.TestCase):
     def test_probability_floor_prevents_log_underflow(self) -> None:
         self.assertTrue(math.isfinite(_log_probability(0.0)))
 
+    def test_sustained_sensor_supported_cruise_speed_is_air_not_unknown(self) -> None:
+        points = [
+            point(index * 60, 31.2, 121.49 + index * 0.10, speed=160.0)
+            for index in range(12)
+        ]
+
+        processed = process_trace(points)
+
+        self.assertTrue(processed.modes.legs)
+        self.assertEqual(processed.modes.legs[0].selected_mode_code, "air")
+
     def test_penalized_change_points_split_walk_from_road_vehicle(self) -> None:
         points: list[NormalizedLocationPoint] = []
         longitude = 121.49

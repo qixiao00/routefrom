@@ -44,4 +44,4 @@ corepack pnpm typecheck
 corepack pnpm build
 ```
 
-当前 MVP 使用 MapLibre GeoJSON 图层承载约 1.5 万个预览顶点。deck.gl 二进制图层、热力图、聚合图层、百万点性能和完整服务端工作区 API 留到下一阶段。
+当前本地预览默认保留最多 15 万个轨迹顶点及其嵌套重要度；轨迹由地图上的单个 Canvas 图层按当前缩放精度绘制，放大时能恢复原始几何，不再叠加第二条 MapLibre 实线。deck.gl 二进制图层、热力图、聚合图层、百万点性能和完整服务端工作区 API 留到下一阶段。

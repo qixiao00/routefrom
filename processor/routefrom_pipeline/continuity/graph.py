@@ -7,6 +7,8 @@ from typing import Literal, Sequence
 from routefrom_pipeline.quality.anomaly import PointAssessment
 from routefrom_pipeline.quality.features import LocatedObservation, haversine_meters
 
+from .sampling import SamplingContext, SamplingIntervalAssessment
+
 EdgeKind = Literal["adjacent", "bypass", "break"]
 
 
@@ -35,6 +37,10 @@ class ContinuityEdge:
     calculated_speed_mps: float | None
     continuity_probability: float
     reason_codes: tuple[str, ...]
+    sampling_context: SamplingContext | None = None
+    normal_wait_probability: float | None = None
+    expected_interval_seconds: float | None = None
+    sampling_model_confidence: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +89,7 @@ def _make_edge(
     from_index: int,
     to_index: int,
     local_interval_seconds: float | None,
+    sampling_interval: SamplingIntervalAssessment | None,
     config: ContinuityConfig,
 ) -> ContinuityEdge:
     start = points[from_index]
@@ -105,12 +112,19 @@ def _make_edge(
             (config.maximum_continuous_speed_mps - (calculated_speed or 0))
             / config.speed_transition_softness_mps
         )
-        gap_threshold = _expected_gap_threshold_seconds(local_interval_seconds, config)
-        if elapsed_seconds > gap_threshold:
-            gap_probability = max(1e-6, gap_threshold / elapsed_seconds * 0.02)
-            reasons.append("adaptive_sampling_gap")
+        if sampling_interval is not None and sampling_interval.is_observation_gap:
+            gap_probability = max(
+                1e-6,
+                sampling_interval.normal_wait_probability * 0.05,
+            )
+            reasons.extend(("adaptive_sampling_gap", *sampling_interval.reason_codes))
         else:
-            gap_probability = 1.0
+            gap_threshold = _expected_gap_threshold_seconds(local_interval_seconds, config)
+            if sampling_interval is None and elapsed_seconds > gap_threshold:
+                gap_probability = max(1e-6, gap_threshold / elapsed_seconds * 0.02)
+                reasons.append("adaptive_sampling_gap")
+            else:
+                gap_probability = 1.0
         probability = speed_probability * gap_probability
         if speed_probability < 0.5:
             reasons.append("network_speed_implausible")
@@ -132,6 +146,16 @@ def _make_edge(
         calculated_speed_mps=calculated_speed,
         continuity_probability=max(1e-12, min(1.0, probability)),
         reason_codes=tuple(reasons),
+        sampling_context=sampling_interval.context if sampling_interval is not None else None,
+        normal_wait_probability=(
+            sampling_interval.normal_wait_probability if sampling_interval is not None else None
+        ),
+        expected_interval_seconds=(
+            sampling_interval.expected_interval_seconds if sampling_interval is not None else None
+        ),
+        sampling_model_confidence=(
+            sampling_interval.confidence if sampling_interval is not None else None
+        ),
     )
 
 
@@ -146,12 +170,15 @@ def select_continuity(
     assessments: Sequence[PointAssessment],
     *,
     local_intervals_seconds: Sequence[float | None] | None = None,
+    sampling_intervals: Sequence[SamplingIntervalAssessment] | None = None,
     config: ContinuityConfig = ContinuityConfig(),
 ) -> ContinuityResult:
     if len(points) != len(assessments):
         raise ValueError("points and assessments must have equal length")
     if local_intervals_seconds is not None and len(local_intervals_seconds) != len(points):
         raise ValueError("local_intervals_seconds must match points length")
+    if sampling_intervals is not None and len(sampling_intervals) != max(0, len(points) - 1):
+        raise ValueError("sampling_intervals must match point intervals")
     if not points:
         return ContinuityResult((), (), (), ())
     if config.max_skipped_points < 0:
@@ -207,13 +234,26 @@ def select_continuity(
                 continue
 
             skipped_count = index - last_index - 1
-            if skipped_count <= config.max_skipped_points:
+            crosses_sampling_gap = (
+                sampling_intervals is not None
+                and any(
+                    interval.is_observation_gap
+                    for interval in sampling_intervals[last_index:index]
+                )
+            )
+            if skipped_count <= config.max_skipped_points and not crosses_sampling_gap:
+                sampling_interval = (
+                    sampling_intervals[last_index]
+                    if sampling_intervals is not None and index == last_index + 1
+                    else None
+                )
                 edge = _make_edge(
                     points,
                     assessments,
                     last_index,
                     index,
                     local_interval,
+                    sampling_interval,
                     config,
                 )
                 connected_score = (
@@ -228,11 +268,27 @@ def select_continuity(
                         _State(connected_score, last_index, "connect", edge),
                     )
 
+            break_sampling = (
+                min(
+                    sampling_intervals[last_index:index],
+                    key=lambda interval: interval.normal_wait_probability,
+                )
+                if sampling_intervals is not None and index > last_index
+                else None
+            )
+            elapsed_seconds = (
+                points[index].recorded_at - points[last_index].recorded_at
+            ).total_seconds()
+            sampling_gap = (
+                crosses_sampling_gap
+                if break_sampling is not None
+                else elapsed_seconds > _expected_gap_threshold_seconds(local_interval, config)
+            )
             break_edge = ContinuityEdge(
                 from_index=last_index,
                 to_index=index,
                 kind="break",
-                elapsed_seconds=(points[index].recorded_at - points[last_index].recorded_at).total_seconds(),
+                elapsed_seconds=elapsed_seconds,
                 displacement_meters=haversine_meters(
                     points[last_index].wgs_latitude,
                     points[last_index].wgs_longitude,
@@ -245,12 +301,30 @@ def select_continuity(
                     "continuity_break",
                     *(
                         ("observation_gap_unknown",)
-                        if (
-                            points[index].recorded_at - points[last_index].recorded_at
-                        ).total_seconds()
-                        > _expected_gap_threshold_seconds(local_interval, config)
+                        if sampling_gap
                         else ("implausible_transition",)
                     ),
+                    *(
+                        break_sampling.reason_codes
+                        if break_sampling is not None and sampling_gap
+                        else ()
+                    ),
+                ),
+                sampling_context=(
+                    break_sampling.context if break_sampling is not None else None
+                ),
+                normal_wait_probability=(
+                    break_sampling.normal_wait_probability
+                    if break_sampling is not None
+                    else None
+                ),
+                expected_interval_seconds=(
+                    break_sampling.expected_interval_seconds
+                    if break_sampling is not None
+                    else None
+                ),
+                sampling_model_confidence=(
+                    break_sampling.confidence if break_sampling is not None else None
                 ),
             )
             break_candidate = _State(

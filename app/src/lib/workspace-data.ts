@@ -1,6 +1,11 @@
 import type { TimeRange } from "./workspace-query";
 
-export type PreviewVertex = [recordedAt: string, longitude: number, latitude: number];
+export type PreviewVertex = [
+  recordedAt: string,
+  longitude: number,
+  latitude: number,
+  importanceMeters?: number | null,
+];
 
 export interface PreviewPath {
   segmentIndex: number;
@@ -13,6 +18,9 @@ export interface PreviewGap {
   end: string;
   cause: string;
   confidence: number;
+  samplingContext?: "moving" | "stationary" | "uncertain" | null;
+  normalWaitProbability?: number | null;
+  expectedIntervalSeconds?: number | null;
   startPosition: [number, number];
   endPosition: [number, number];
 }
@@ -98,12 +106,29 @@ export interface SelectedPath extends PreviewPath {
 function interpolate(left: PreviewVertex, right: PreviewVertex, instant: number): PreviewVertex {
   const leftTime = Date.parse(left[0]);
   const rightTime = Date.parse(right[0]);
+  if (instant === leftTime) return left;
+  if (instant === rightTime) return right;
   const fraction = rightTime === leftTime ? 0 : (instant - leftTime) / (rightTime - leftTime);
   return [
     new Date(instant).toISOString(),
     left[1] + (right[1] - left[1]) * fraction,
     left[2] + (right[2] - left[2]) * fraction,
+    null,
   ];
+}
+
+export function simplifySelectedPath(
+  path: SelectedPath,
+  toleranceMeters: number,
+): PreviewVertex[] {
+  if (path.vertices.length <= 2 || toleranceMeters <= 0) return path.vertices;
+  return path.vertices.filter(
+    (vertex, index) =>
+      index === 0 ||
+      index === path.vertices.length - 1 ||
+      vertex[3] == null ||
+      vertex[3] >= toleranceMeters,
+  );
 }
 
 export function selectPaths(paths: readonly PreviewPath[], ranges: readonly TimeRange[]): SelectedPath[] {

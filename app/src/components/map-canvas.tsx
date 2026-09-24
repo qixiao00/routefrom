@@ -5,6 +5,7 @@ import type { FeatureCollection, LineString, Point } from "geojson";
 import type { MapLayerMouseEvent, MapRef } from "react-map-gl/maplibre";
 import Map, { Layer, NavigationControl, Source } from "react-map-gl/maplibre";
 
+import { simplifySelectedPath } from "@/lib/workspace-data";
 import type {
   PreviewGap,
   PreviewStay,
@@ -68,20 +69,6 @@ export function MapCanvas({
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
-  const lineData = useMemo<FeatureCollection<LineString>>(
-    () => ({
-      type: "FeatureCollection",
-      features: selectedPaths.map((path) => ({
-        type: "Feature",
-        properties: { rangeIndex: path.rangeIndex, segmentIndex: path.segmentIndex },
-        geometry: {
-          type: "LineString",
-          coordinates: path.vertices.map((vertex) => [vertex[1], vertex[2]]),
-        },
-      })),
-    }),
-    [selectedPaths],
-  );
   const gapData = useMemo<FeatureCollection<LineString>>(
     () => ({
       type: "FeatureCollection",
@@ -129,16 +116,24 @@ export function MapCanvas({
   );
 
   const fitSelection = useCallback(() => {
-    const coordinates = selectedPaths.flatMap((path) =>
-      path.vertices.map((vertex) => [vertex[1], vertex[2]] as [number, number]),
-    );
-    if (coordinates.length === 0 || !mapRef.current) return;
-    const longitudes = coordinates.map((coordinate) => coordinate[0]);
-    const latitudes = coordinates.map((coordinate) => coordinate[1]);
+    if (!mapRef.current) return;
+    let minLongitude = Infinity;
+    let minLatitude = Infinity;
+    let maxLongitude = -Infinity;
+    let maxLatitude = -Infinity;
+    for (const path of selectedPaths) {
+      for (const vertex of path.vertices) {
+        minLongitude = Math.min(minLongitude, vertex[1]);
+        maxLongitude = Math.max(maxLongitude, vertex[1]);
+        minLatitude = Math.min(minLatitude, vertex[2]);
+        maxLatitude = Math.max(maxLatitude, vertex[2]);
+      }
+    }
+    if (!Number.isFinite(minLongitude)) return;
     mapRef.current.fitBounds(
       [
-        [Math.min(...longitudes), Math.min(...latitudes)],
-        [Math.max(...longitudes), Math.max(...latitudes)],
+        [minLongitude, minLatitude],
+        [maxLongitude, maxLatitude],
       ],
       { padding: { top: 80, right: 80, bottom: 120, left: 80 }, duration: 850, maxZoom: 14 },
     );
@@ -162,20 +157,27 @@ export function MapCanvas({
     context.clearRect(0, 0, bounds.width, bounds.height);
 
     if (visibleLayers.track) {
+      const zoom = map.getZoom();
+      const latitude = map.getCenter().lat;
+      const toleranceMeters =
+        (156_543.03 * Math.cos((latitude * Math.PI) / 180) / 2 ** zoom) * 0.8;
       selectedPaths.forEach((path) => {
         if (path.vertices.length < 2) return;
+        const vertices = simplifySelectedPath(path, toleranceMeters);
         context.beginPath();
-        path.vertices.forEach((vertex, index) => {
+        vertices.forEach((vertex, index) => {
           const point = map.project([vertex[1], vertex[2]]);
           if (index === 0) context.moveTo(point.x, point.y);
           else context.lineTo(point.x, point.y);
         });
         context.lineCap = "round";
         context.lineJoin = "round";
-        context.strokeStyle = path.rangeIndex % 2 === 0 ? "rgba(155,226,207,.95)" : "rgba(125,175,239,.95)";
-        context.shadowBlur = 6;
+        context.strokeStyle = path.rangeIndex % 2 === 0
+          ? (zoom < 9 ? "rgba(155,226,207,.65)" : "rgba(155,226,207,.88)")
+          : (zoom < 9 ? "rgba(125,175,239,.65)" : "rgba(125,175,239,.88)");
+        context.shadowBlur = zoom < 10 ? 0 : 3;
         context.shadowColor = path.rangeIndex % 2 === 0 ? "rgba(141,216,196,.5)" : "rgba(114,167,255,.5)";
-        context.lineWidth = 2.2;
+        context.lineWidth = zoom < 9 ? 1.25 : 1.8;
         context.stroke();
       });
       context.shadowBlur = 0;
@@ -270,11 +272,6 @@ export function MapCanvas({
       cursor="default"
     >
       <NavigationControl position="bottom-right" visualizePitch />
-
-      <Source id="observed-tracks" type="geojson" data={lineData}>
-        <Layer id="track-halo" type="line" layout={{ "line-cap": "round", "line-join": "round" }} paint={{ "line-color": "#8dd8c4", "line-width": 12, "line-opacity": visibleLayers.track ? 0.18 : 0, "line-blur": 6 }} />
-        <Layer id="track-lines" type="line" layout={{ "line-cap": "round", "line-join": "round" }} paint={{ "line-color": ["case", ["==", ["get", "rangeIndex"], 0], "#9be2cf", "#7dafef"], "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.6, 13, 4.2], "line-opacity": visibleLayers.track ? 0.96 : 0 }} />
-      </Source>
 
       <Source id="unknown-gaps" type="geojson" data={gapData}>
         <Layer id="gap-lines" type="line" layout={{ "line-cap": "round" }} paint={{ "line-color": "#a3aea9", "line-width": 1.5, "line-opacity": visibleLayers.gaps ? 0.62 : 0, "line-dasharray": [2, 2.4] }} />

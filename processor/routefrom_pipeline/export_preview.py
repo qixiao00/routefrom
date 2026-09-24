@@ -22,7 +22,7 @@ def export_workspace_preview(
     source: Path,
     output: Path,
     *,
-    vertex_budget: int = 15_000,
+    vertex_budget: int = 150_000,
 ) -> dict[str, object]:
     started = perf_counter()
     points = tuple(iter_linggan_csv(source))
@@ -42,7 +42,7 @@ def export_workspace_preview(
     visible = query_trajectory(
         preferred,
         [selected_range],
-        pixel_tolerance_meters=1.0,
+        pixel_tolerance_meters=0.0,
         vertex_budget=vertex_budget,
     )
     dataset_key = f"{source.name}:{len(points)}:{points[0].recorded_at}:{points[-1].recorded_at}"
@@ -84,6 +84,11 @@ def export_workspace_preview(
                         _instant(vertex.recorded_at),
                         round(vertex.longitude, 6),
                         round(vertex.latitude, 6),
+                        (
+                            round(vertex.importance_meters, 3)
+                            if vertex.importance_meters is not None
+                            else None
+                        ),
                     ]
                     for vertex in path.vertices
                 ],
@@ -97,6 +102,19 @@ def export_workspace_preview(
                 "end": _instant(gap.ended_at),
                 "cause": gap.cause.value,
                 "confidence": round(gap.confidence, 4),
+                "samplingContext": (
+                    gap.sampling_context.value if gap.sampling_context is not None else None
+                ),
+                "normalWaitProbability": (
+                    round(gap.normal_wait_probability, 6)
+                    if gap.normal_wait_probability is not None
+                    else None
+                ),
+                "expectedIntervalSeconds": (
+                    round(gap.expected_interval_seconds, 2)
+                    if gap.expected_interval_seconds is not None
+                    else None
+                ),
                 "startPosition": [
                     round(points[gap.before_point_index].wgs_longitude, 6),
                     round(points[gap.before_point_index].wgs_latitude, 6),
@@ -183,7 +201,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build a private local frontend preview artifact")
     parser.add_argument("source", type=Path)
     parser.add_argument("--output", type=Path, default=Path("data/generated/workspace-preview.json"))
-    parser.add_argument("--vertex-budget", type=int, default=15_000)
+    parser.add_argument("--vertex-budget", type=int, default=150_000)
     args = parser.parse_args()
     result = export_workspace_preview(args.source, args.output, vertex_budget=args.vertex_budget)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))

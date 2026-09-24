@@ -11,6 +11,7 @@ from routefrom_pipeline.model import QualityStatus
 from routefrom_pipeline.quality import LocatedObservation, PointAssessment, haversine_meters
 
 from .graph import ContinuityResult
+from .sampling import SamplingContext
 
 
 class ObservationGapCause(StrEnum):
@@ -39,6 +40,9 @@ class ObservationGap:
     same_place_probability: float
     confidence: float
     reason_codes: tuple[str, ...]
+    sampling_context: SamplingContext | None
+    normal_wait_probability: float | None
+    expected_interval_seconds: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,7 +162,16 @@ def build_observation_gaps(
             config,
         )
         cause = _gap_cause(edge.reason_codes, skipped_assessments)
-        confidence = 1.0 if elapsed_seconds > 0 else 0.5
+        if elapsed_seconds <= 0:
+            confidence = 0.5
+        elif edge.normal_wait_probability is not None:
+            model_confidence = edge.sampling_model_confidence or 0.5
+            confidence = max(
+                0.5,
+                min(1.0, (1.0 - edge.normal_wait_probability) * model_confidence),
+            )
+        else:
+            confidence = 0.75
         gap = ObservationGap(
             before_point_index=before_index,
             after_point_index=after_index,
@@ -172,6 +185,9 @@ def build_observation_gaps(
             same_place_probability=same_place_probability,
             confidence=confidence,
             reason_codes=edge.reason_codes,
+            sampling_context=edge.sampling_context,
+            normal_wait_probability=edge.normal_wait_probability,
+            expected_interval_seconds=edge.expected_interval_seconds,
         )
         gaps.append(gap)
 

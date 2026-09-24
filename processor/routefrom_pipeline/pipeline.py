@@ -9,7 +9,10 @@ from routefrom_pipeline.continuity import (
     GapConfig,
     InferredConnection,
     ObservationGap,
+    SamplingIntervalAssessment,
+    SamplingModelConfig,
     build_observation_gaps,
+    estimate_sampling_intervals,
     select_continuity,
 )
 from routefrom_pipeline.motion import MotionConfig, MotionResult, infer_motion
@@ -44,7 +47,7 @@ from routefrom_pipeline.trajectory import (
     build_trajectory_representation,
 )
 
-ALGORITHM_VERSION = "quality-continuity-motion-stays-trips-places-modes-smoothing-map-matching-trajectory-v4"
+ALGORITHM_VERSION = "quality-continuity-sampling-survival-motion-stays-trips-places-modes-smoothing-map-matching-trajectory-v6"
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +55,7 @@ class ProcessingConfig:
     interval_window: int = 6
     timezone: str = "Asia/Shanghai"
     anomaly: AnomalyConfig = AnomalyConfig()
+    sampling: SamplingModelConfig = SamplingModelConfig()
     continuity: ContinuityConfig = ContinuityConfig()
     gaps: GapConfig = GapConfig()
     motion: MotionConfig = MotionConfig()
@@ -70,6 +74,7 @@ class ProcessedTrace:
     points: tuple[LocatedObservation, ...]
     features: tuple[PointFeatures, ...]
     assessments: tuple[PointAssessment, ...]
+    sampling_intervals: tuple[SamplingIntervalAssessment, ...]
     continuity: ContinuityResult
     motion: MotionResult
     observation_gaps: tuple[ObservationGap, ...]
@@ -113,12 +118,18 @@ def process_trace(
         )
     )
     assessments = tuple(assess_points(features, config.anomaly))
+    sampling_intervals = estimate_sampling_intervals(
+        normalized_points,
+        features,
+        config=config.sampling,
+    )
     continuity = select_continuity(
         normalized_points,
         assessments,
         local_intervals_seconds=tuple(
             feature.local_interval_median_seconds for feature in features
         ),
+        sampling_intervals=sampling_intervals,
         config=config.continuity,
     )
     motion = infer_motion(
@@ -240,6 +251,7 @@ def process_trace(
         points=normalized_points,
         features=features,
         assessments=assessments,
+        sampling_intervals=sampling_intervals,
         continuity=continuity,
         motion=motion,
         observation_gaps=observation_gaps,
