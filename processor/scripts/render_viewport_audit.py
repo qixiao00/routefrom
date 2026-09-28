@@ -38,13 +38,13 @@ def render(source: Path, output: Path) -> None:
     for panel in (0, 1):
         for piece in response["paths"]:
             movement_class = piece["movementClass"]
-            if panel == 0 and movement_class != "ordinary":
+            if panel == 0 and movement_class == "high_speed":
                 continue
             coordinates = [project(vertex, panel) for vertex in piece["vertices"]]
             if len(coordinates) >= 2:
                 draw.line(coordinates, fill=colors[movement_class], width=1)
         if panel == 0:
-            draw.text((margin, 5), "DEFAULT: ordinary", fill="#d3dfd9")
+            draw.text((margin, 5), "DEFAULT: ordinary + sparse", fill="#d3dfd9")
         else:
             draw.text(
                 (panel_width + margin, 5),

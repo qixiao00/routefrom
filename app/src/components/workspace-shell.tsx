@@ -39,7 +39,7 @@ import {
   type PreviewStay,
   type WorkspaceEvents,
 } from "@/lib/workspace-data";
-import type { ViewportBounds, ViewportPath, ViewportResponse } from "@/lib/workspace-viewport";
+import { unionBounds, type ViewportBounds, type ViewportPath, type ViewportResponse } from "@/lib/workspace-viewport";
 import { type LayerId, useWorkspaceStore } from "@/lib/workspace-store";
 import type { TimeRange } from "@/lib/workspace-query";
 
@@ -58,7 +58,7 @@ const layerDefinitions: Array<{
   icon: typeof Route;
 }> = [
   { id: "track", label: "观测轨迹", description: "普通移动的确认段", color: "mint", icon: Route },
-  { id: "sparse", label: "稀疏连接", description: "两点间超过 2 km · 路线未观测", color: "slate", icon: Route },
+  { id: "sparse", label: "稀疏连接", description: "相邻点相距 ≥500 m · 路线未观测", color: "slate", icon: Route },
   { id: "highSpeed", label: "高速移动", description: "航空及高速候选 · 单独显示", color: "blue", icon: Plane },
   { id: "stays", label: "静止事件", description: "访问、暂停与未决", color: "amber", icon: MapPin },
   { id: "gaps", label: "未知缺口", description: "不计入确认统计", color: "slate", icon: TriangleAlert },
@@ -181,6 +181,15 @@ export function WorkspaceShell() {
   }, [data, rangeKey, visibleBounds, detailZoom, sourceKey]);
 
   const viewportResult = viewportState?.sourceKey === sourceKey ? viewportState.response : null;
+  const focusBounds = useMemo(() => {
+    const classes = viewportResult?.selectedBoundsByClass;
+    if (!classes) return null;
+    let bounds: ViewportBounds | null = null;
+    if (visibleLayers.track) bounds = unionBounds(bounds, classes.ordinary);
+    if (visibleLayers.sparse) bounds = unionBounds(bounds, classes.sparse);
+    if (visibleLayers.highSpeed) bounds = unionBounds(bounds, classes.high_speed);
+    return bounds;
+  }, [viewportResult, visibleLayers.track, visibleLayers.sparse, visibleLayers.highSpeed]);
   const currentEvents = eventState?.sourceKey === sourceKey ? eventState.events : null;
   const viewData = useMemo(() => data ? { ...data, ...currentEvents } : null, [data, currentEvents]);
   const selectedPaths = viewportResult?.paths ?? EMPTY_PATHS;
@@ -337,7 +346,7 @@ export function WorkspaceShell() {
           <MapCanvas
             data={viewData}
             selectedPaths={selectedPaths}
-            selectedBounds={viewportResult?.selectedBounds ?? null}
+            selectedBounds={focusBounds}
             selectedStays={mapStays}
             selectedGaps={mapGaps}
             visibleLayers={visibleLayers}
@@ -357,7 +366,7 @@ export function WorkspaceShell() {
           </div>
         )}
         <div className="map-toolbar">
-          <button className="active" type="button" onClick={() => setFitRequest((value) => value + 1)}><Focus size={16} />聚焦所选时间</button>
+          <button className="active" type="button" disabled={!focusBounds} onClick={() => setFitRequest((value) => value + 1)}><Focus size={16} />聚焦可见轨迹</button>
           <button type="button" aria-label="地图设置"><Settings2 size={16} /></button>
         </div>
         <div className="map-stat">
@@ -391,7 +400,7 @@ export function WorkspaceShell() {
             <div className="selection-overview">
               <span className="selection-glyph"><CalendarRange size={21} /></span>
               <strong>{ranges.length} 个区间</strong>
-              <span>区间之间不会连线。稀疏与高速轨迹可在左侧开启；确认距离仍包含全部确认段。</span>
+              <span>区间之间不会连线。稀疏与高速轨迹可在左侧切换；确认距离仍包含全部确认段。</span>
             </div>
             <div className="metric-grid">
               <div><span>确认距离</span><strong>{formatDistance(distance)}</strong></div>

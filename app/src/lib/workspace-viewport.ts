@@ -24,6 +24,7 @@ export interface ViewportResponse {
   coverageBounds: ViewportBounds;
   detailZoom: number;
   selectedBounds: ViewportBounds | null;
+  selectedBoundsByClass: Record<MovementClass, ViewportBounds | null>;
   selectedDistanceMeters: number;
   visibleVertexCount: number;
 }
@@ -36,16 +37,20 @@ export interface IndexedSelectedPath {
 export interface ViewportSelection {
   paths: IndexedSelectedPath[];
   bounds: ViewportBounds | null;
+  boundsByClass: Record<MovementClass, ViewportBounds | null>;
   distanceMeters: number;
 }
 
+export type MovementClass = "ordinary" | "sparse" | "high_speed";
+
 export interface ViewportPath extends SelectedPath {
-  movementClass: "ordinary" | "sparse" | "high_speed";
+  movementClass: MovementClass;
 }
 
 export class ViewportQueryError extends Error {}
 
 const MAX_RANGES = 64;
+const SPARSE_EDGE_METERS = 500;
 const OFFSET_INSTANT = /(Z|[+-]\d{2}:\d{2})$/i;
 
 export function parseViewportRequest(value: unknown): ViewportRequest {
@@ -133,6 +138,17 @@ function boundsOverlap(left: ViewportBounds, right: ViewportBounds): boolean {
 function boundsContain(outer: ViewportBounds, inner: ViewportBounds): boolean {
   return outer[0] <= inner[0] && outer[1] <= inner[1] &&
     outer[2] >= inner[2] && outer[3] >= inner[3];
+}
+
+export function unionBounds(left: ViewportBounds | null, right: ViewportBounds | null): ViewportBounds | null {
+  if (!left) return right;
+  if (!right) return left;
+  return [
+    Math.min(left[0], right[0]),
+    Math.min(left[1], right[1]),
+    Math.max(left[2], right[2]),
+    Math.max(left[3], right[3]),
+  ];
 }
 
 function distanceToSegment(
@@ -246,7 +262,7 @@ function splitByMovementClass(
     const speed = end > start ? displacementMeters / ((end - start) / 1000) : 0;
     const movementClass = isAirTime((start + end) / 2, intervals) || speed >= 70
       ? "high_speed"
-      : displacementMeters >= 2_000 ? "sparse" : "ordinary";
+      : displacementMeters >= SPARSE_EDGE_METERS ? "sparse" : "ordinary";
     if (!current || current.movementClass !== movementClass) {
       current = { ...path, movementClass, vertices: [left, right] };
       pieces.push(current);
@@ -265,22 +281,21 @@ export function buildViewportSelection(
   const selected = selectPaths(paths, ranges);
   const indexed: IndexedSelectedPath[] = [];
   let bounds: ViewportBounds | null = null;
+  const boundsByClass: Record<MovementClass, ViewportBounds | null> = {
+    ordinary: null,
+    sparse: null,
+    high_speed: null,
+  };
   const intervals = airIntervals(modeLegs);
   for (const path of selected) {
     for (const piece of splitByMovementClass(path, intervals)) {
       const pathBounds = boundsForVertices(piece.vertices);
       indexed.push({ path: piece, bounds: pathBounds });
-      bounds = bounds
-        ? [
-            Math.min(bounds[0], pathBounds[0]),
-            Math.min(bounds[1], pathBounds[1]),
-            Math.max(bounds[2], pathBounds[2]),
-            Math.max(bounds[3], pathBounds[3]),
-          ]
-        : pathBounds;
+      bounds = unionBounds(bounds, pathBounds);
+      boundsByClass[piece.movementClass] = unionBounds(boundsByClass[piece.movementClass], pathBounds);
     }
   }
-  return { paths: indexed, bounds, distanceMeters: selectedDistanceMeters(selected) };
+  return { paths: indexed, bounds, boundsByClass, distanceMeters: selectedDistanceMeters(selected) };
 }
 
 function edgeIntersectsBounds(
@@ -389,6 +404,7 @@ export function queryViewportSelection(
     coverageBounds: bounds,
     detailZoom,
     selectedBounds: selection.bounds,
+    selectedBoundsByClass: selection.boundsByClass,
     selectedDistanceMeters: selection.distanceMeters,
     visibleVertexCount: paths.reduce((sum, path) => sum + path.vertices.length, 0),
   };

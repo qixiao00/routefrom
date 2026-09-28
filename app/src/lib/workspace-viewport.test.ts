@@ -6,6 +6,7 @@ import {
   buildViewportSelection,
   parseViewportRequest,
   queryViewportSelection,
+  unionBounds,
   type ViewportBounds,
 } from "./workspace-viewport.ts";
 
@@ -139,6 +140,22 @@ test("a long low-speed observation interval is not presented as an exact route",
   assert.equal(result.selectedDistanceMeters, selection.distanceMeters);
 });
 
+test("sparse display starts at roughly half a kilometer of unobserved geometry", () => {
+  const path: PreviewPath = {
+    segmentIndex: 14,
+    vertices: [
+      [instant(0), 118, 24.5, null],
+      [instant(60), 118.004, 24.5, 100],
+      [instant(120), 118.010, 24.5, null],
+    ],
+  };
+  const selection = buildViewportSelection([path], [range]);
+
+  assert.deepEqual(selection.paths.map(({ path: piece }) => piece.movementClass), [
+    "ordinary", "sparse",
+  ]);
+});
+
 test("air mode is displayed separately even during slow takeoff and landing samples", () => {
   const path: PreviewPath = {
     segmentIndex: 12,
@@ -161,6 +178,35 @@ test("air mode is displayed separately even during slow takeoff and landing samp
   assert.deepEqual(result.paths.map((piece) => piece.movementClass), ["high_speed"]);
   assert.equal(result.paths[0].vertices[0][0], instant(0));
   assert.equal(result.paths[0].vertices.at(-1)?.[0], instant(120));
+});
+
+test("focus bounds can exclude hidden movement classes", () => {
+  const selection = buildViewportSelection([
+    {
+      segmentIndex: 20,
+      vertices: [
+        [instant(0), 118, 24.5, null],
+        [instant(60), 118.001, 24.5, null],
+      ],
+    },
+    {
+      segmentIndex: 21,
+      vertices: [
+        [instant(120), 119, 25, null],
+        [instant(180), 119.1, 25, null],
+      ],
+    },
+  ], [range]);
+  const response = queryViewportSelection(selection, [117, 24, 120, 26], 9);
+
+  assert.deepEqual(response.selectedBoundsByClass.ordinary, [118, 24.5, 118.001, 24.5]);
+  assert.deepEqual(response.selectedBoundsByClass.high_speed, [119, 25, 119.1, 25]);
+  assert.equal(response.selectedBoundsByClass.sparse, null);
+  assert.deepEqual(unionBounds(response.selectedBoundsByClass.ordinary, null), [
+    118, 24.5, 118.001, 24.5,
+  ]);
+  assert.deepEqual(unionBounds(response.selectedBoundsByClass.ordinary,
+    response.selectedBoundsByClass.high_speed), response.selectedBounds);
 });
 
 test("discontinuous time ranges never become a single map path", () => {

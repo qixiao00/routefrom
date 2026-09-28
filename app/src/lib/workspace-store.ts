@@ -54,7 +54,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       error: null,
       data: null,
       ranges: [],
-      visibleLayers: { track: true, sparse: false, highSpeed: false, stays: true, gaps: true, places: true },
+      visibleLayers: { track: true, sparse: true, highSpeed: false, stays: true, gaps: true, places: true },
       selection: null,
       cursorTime: null,
       mapView: initialMapView,
@@ -120,6 +120,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     {
       name: "routefrom-workspace-view-v1",
       storage: createJSONStorage(() => localStorage),
+      merge: (persisted, current) => {
+        const saved = persisted && typeof persisted === "object"
+          ? persisted as Partial<WorkspaceState>
+          : {};
+        return {
+          ...current,
+          ...saved,
+          visibleLayers: {
+            ...current.visibleLayers,
+            ...(saved.visibleLayers && typeof saved.visibleLayers === "object" ? saved.visibleLayers : {}),
+          },
+        };
+      },
       partialize: (state) => ({
         ranges: state.ranges,
         visibleLayers: state.visibleLayers,
