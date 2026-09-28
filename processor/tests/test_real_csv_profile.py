@@ -5,6 +5,7 @@ from itertools import islice
 from pathlib import Path
 
 from routefrom_pipeline.continuity import select_continuity
+from routefrom_pipeline.continuity.sampling import estimate_sampling_intervals
 from routefrom_pipeline.ingest import iter_linggan_csv
 from routefrom_pipeline.ingest.linggan import profile_linggan_csv
 from routefrom_pipeline.model import QualityStatus
@@ -69,6 +70,56 @@ class RealCsvProfileTests(unittest.TestCase):
         self.assertEqual(skipped_rows, excluded_rows)
         self.assertEqual(bypass_rows, excluded_rows)
         self.assertEqual(len(result.segments), 1)
+
+    def test_private_moderate_spikes_and_weak_fixes_keep_honest_geometry(self) -> None:
+        raw_directory = Path(__file__).resolve().parents[2] / "data" / "raw"
+        candidates = tuple(raw_directory.glob("*.csv"))
+        if len(candidates) != 1:
+            self.skipTest("one private Linggan CSV is required for this regression")
+
+        wanted_rows = {5_766, 10_969, 42_556, 68_071, 72_965, 78_089, 82_540, 84_756, 91_743}
+        windows: dict[int, list] = {}
+        nearby = list(iter_linggan_csv(candidates[0]))
+        row_to_index = {point.source_row_number: index for index, point in enumerate(nearby)}
+        for row in wanted_rows:
+            index = row_to_index[row]
+            windows[row] = nearby[index - 3:index + 4]
+
+        for row in (42_556, 68_071, 82_540):
+            points = windows[row]
+            assessment = assess_points(build_point_features(points))[3]
+            self.assertEqual(assessment.quality_status, QualityStatus.EXCLUDED, row)
+            self.assertTrue(assessment.exclusion_supported, row)
+
+        for row in (78_089, 84_756):
+            points = windows[row]
+            features = build_point_features(points)
+            assessment = assess_points(features)[3]
+            sampling = estimate_sampling_intervals(points, features)
+            self.assertNotEqual(assessment.quality_status, QualityStatus.EXCLUDED, row)
+            self.assertTrue(sampling[2].is_observation_gap, row)
+            self.assertTrue(sampling[3].is_observation_gap, row)
+            self.assertIn("short_move_with_weak_position_support", sampling[2].reason_codes)
+            self.assertIn("short_move_with_weak_position_support", sampling[3].reason_codes)
+
+        for row in (10_969, 91_743):
+            points = windows[row]
+            sampling = estimate_sampling_intervals(points, build_point_features(points))
+            self.assertTrue(sampling[2].is_observation_gap, row)
+            self.assertTrue(sampling[3].is_observation_gap, row)
+            self.assertIn("fast_return_without_sensor_support", sampling[2].reason_codes)
+            self.assertIn("fast_return_without_sensor_support", sampling[3].reason_codes)
+
+        for row in (5_766, 72_965):
+            points = windows[row]
+            features = build_point_features(points)
+            assessment = assess_points(features)[3]
+            sampling = estimate_sampling_intervals(points, features)
+            self.assertFalse(assessment.exclusion_supported, row)
+            self.assertTrue(sampling[2].is_observation_gap, row)
+            self.assertTrue(sampling[3].is_observation_gap, row)
+            self.assertIn("return_conflicts_with_reported_speeds", sampling[2].reason_codes)
+            self.assertIn("return_conflicts_with_reported_speeds", sampling[3].reason_codes)
 
 
 if __name__ == "__main__":

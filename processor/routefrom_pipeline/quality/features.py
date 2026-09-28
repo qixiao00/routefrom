@@ -36,6 +36,8 @@ class PointFeatures:
     local_interval_median_seconds: float | None
     local_interval_mad_seconds: float | None
     horizontal_accuracy_meters: float | None
+    previous_horizontal_accuracy_meters: float | None
+    next_horizontal_accuracy_meters: float | None
 
 
 def haversine_meters(
@@ -215,6 +217,12 @@ def build_point_features(
                 local_interval_median_seconds=interval_median,
                 local_interval_mad_seconds=interval_mad,
                 horizontal_accuracy_meters=point.horizontal_accuracy_meters,
+                previous_horizontal_accuracy_meters=(
+                    previous.horizontal_accuracy_meters if previous is not None else None
+                ),
+                next_horizontal_accuracy_meters=(
+                    following.horizontal_accuracy_meters if following is not None else None
+                ),
             )
         )
 

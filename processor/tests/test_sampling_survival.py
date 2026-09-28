@@ -198,6 +198,48 @@ class SamplingSurvivalTests(unittest.TestCase):
 
         self.assertTrue(all(not item.is_observation_gap for item in sampling[1:-1]))
 
+    def test_short_large_displacement_with_kilometer_accuracy_is_unknown(self) -> None:
+        points = [
+            point(0, 121.5, recorded_speed=None, accuracy=2_500),
+            point(60, 121.52, recorded_speed=None, accuracy=1_500),
+            point(120, 121.501, recorded_speed=None, accuracy=3_000),
+        ]
+
+        sampling = estimate_sampling_intervals(points, build_point_features(points))
+
+        self.assertTrue(all(item.is_observation_gap for item in sampling))
+        self.assertTrue(
+            all("short_move_with_weak_position_support" in item.reason_codes for item in sampling)
+        )
+
+    def test_fast_short_return_without_sensor_speed_breaks_both_legs(self) -> None:
+        points = [
+            point(0, 121.5, recorded_speed=None, accuracy=50),
+            point(8, 121.51, recorded_speed=None, accuracy=50),
+            point(38, 121.5001, recorded_speed=None, accuracy=50),
+        ]
+
+        sampling = estimate_sampling_intervals(points, build_point_features(points))
+
+        self.assertTrue(all(item.is_observation_gap for item in sampling))
+        self.assertTrue(
+            all("fast_return_without_sensor_support" in item.reason_codes for item in sampling)
+        )
+
+    def test_return_with_stationary_reported_speeds_is_unknown_not_deleted(self) -> None:
+        points = [
+            point(0, 121.5, recorded_speed=1, accuracy=20),
+            point(50, 121.514, recorded_speed=0, accuracy=20),
+            point(90, 121.5001, recorded_speed=1, accuracy=20),
+        ]
+
+        sampling = estimate_sampling_intervals(points, build_point_features(points))
+
+        self.assertTrue(all(item.is_observation_gap for item in sampling))
+        self.assertTrue(
+            all("return_conflicts_with_reported_speeds" in item.reason_codes for item in sampling)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

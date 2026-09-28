@@ -81,6 +81,52 @@ class QualityAndContinuityTests(unittest.TestCase):
         self.assertFalse(assessment.exclusion_supported)
         self.assertIn("low_horizontal_accuracy", assessment.reason_codes)
 
+    def test_moderate_return_with_speed_contradiction_is_excluded(self) -> None:
+        points = [
+            point(0, 31.2000, 121.5000, recorded_speed=0),
+            point(10, 31.2200, 121.5000, recorded_speed=0),
+            point(20, 31.2001, 121.5000, recorded_speed=0),
+        ]
+
+        assessments = assess_points(build_point_features(points))
+        result = select_continuity(points, assessments, local_intervals_seconds=[10] * 3)
+
+        self.assertEqual(assessments[1].quality_status, QualityStatus.EXCLUDED)
+        self.assertIn(
+            "short_return_with_independent_anomaly_evidence",
+            assessments[1].reason_codes,
+        )
+        self.assertEqual(result.skipped_point_indices, (1,))
+
+    def test_moderate_return_with_isolated_bad_fix_is_excluded(self) -> None:
+        points = [
+            point(0, 31.2000, 121.5000, recorded_speed=None),
+            point(300, 31.2250, 121.5000, accuracy=10_000, recorded_speed=None),
+            point(600, 31.2001, 121.5000, recorded_speed=None),
+        ]
+
+        assessment = assess_points(build_point_features(points))[1]
+
+        self.assertEqual(assessment.quality_status, QualityStatus.EXCLUDED)
+        self.assertTrue(assessment.exclusion_supported)
+
+    def test_plausible_return_and_shared_weak_accuracy_are_not_deleted(self) -> None:
+        plausible = [
+            point(0, 31.2000, 121.5000, recorded_speed=35),
+            point(60, 31.2200, 121.5000, recorded_speed=35),
+            point(120, 31.2001, 121.5000, recorded_speed=35),
+        ]
+        uncertain = [
+            point(0, 31.2000, 121.5000, accuracy=3_000, recorded_speed=None),
+            point(60, 31.2200, 121.5000, accuracy=3_000, recorded_speed=None),
+            point(120, 31.2001, 121.5000, accuracy=3_000, recorded_speed=None),
+        ]
+
+        for points in (plausible, uncertain):
+            assessment = assess_points(build_point_features(points))[1]
+            self.assertFalse(assessment.exclusion_supported)
+            self.assertNotEqual(assessment.quality_status, QualityStatus.EXCLUDED)
+
     def test_unreliable_jump_without_return_creates_a_break(self) -> None:
         points = [
             point(0, 31.2000, 121.5000),

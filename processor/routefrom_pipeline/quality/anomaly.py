@@ -19,6 +19,12 @@ class AnomalyConfig:
     isolated_jump_min_meters: float = 5_000.0
     isolated_return_ratio_max: float = 0.05
     isolated_return_weight: float = 5.0
+    contextual_return_min_meters: float = 750.0
+    contextual_return_ratio_max: float = 0.15
+    contextual_speed_min_mps: float = 100.0
+    contextual_speed_residual_min_mps: float = 80.0
+    contextual_accuracy_fraction: float = 0.75
+    contextual_neighbor_accuracy_ratio: float = 3.0
     accuracy_soft_limit_meters: float = 200.0
     accuracy_log_weight: float = 0.25
     recorded_speed_residual_soft_limit_mps: float = 40.0
@@ -102,6 +108,46 @@ def assess_point(
         contributions["isolated_return"] = config.isolated_return_weight
         reason_codes.append("far_jump_then_return")
 
+    # A shorter excursion needs independent evidence before deleting its apex:
+    # either the observed speed contradicts the implied speed, or the apex fix
+    # is markedly worse than both reliable neighbouring fixes. A genuine turn
+    # with coherent speed/accuracy remains in the path.
+    contextual_return = (
+        len(adjacent_distances) == 2
+        and min(adjacent_distances) >= config.contextual_return_min_meters
+        and features.return_ratio is not None
+        and features.return_ratio <= config.contextual_return_ratio_max
+        and features.bypass_speed_mps is not None
+        and features.bypass_speed_mps <= config.ground_speed_soft_limit_mps
+    )
+    speed_contradiction = (
+        maximum_adjacent_speed is not None
+        and maximum_adjacent_speed >= config.contextual_speed_min_mps
+        and features.recorded_speed_residual_mps is not None
+        and features.recorded_speed_residual_mps
+        >= config.contextual_speed_residual_min_mps
+    )
+    previous_accuracy = features.previous_horizontal_accuracy_meters
+    next_accuracy = features.next_horizontal_accuracy_meters
+    neighbor_accuracy_ceiling = (
+        max(previous_accuracy, next_accuracy)
+        if previous_accuracy is not None and next_accuracy is not None
+        else None
+    )
+    weak_apex_fix = (
+        features.horizontal_accuracy_meters is not None
+        and len(adjacent_distances) == 2
+        and features.horizontal_accuracy_meters
+        >= min(adjacent_distances) * config.contextual_accuracy_fraction
+        and neighbor_accuracy_ceiling is not None
+        and neighbor_accuracy_ceiling > 0
+        and features.horizontal_accuracy_meters
+        >= neighbor_accuracy_ceiling * config.contextual_neighbor_accuracy_ratio
+    )
+    if contextual_return and (speed_contradiction or weak_apex_fix) and not isolated_return:
+        contributions["contextual_return"] = config.isolated_return_weight
+        reason_codes.append("short_return_with_independent_anomaly_evidence")
+
     accuracy_contribution = config.accuracy_log_weight * _positive_log_ratio(
         features.horizontal_accuracy_meters, config.accuracy_soft_limit_meters
     )
@@ -119,7 +165,9 @@ def assess_point(
 
     log_odds = config.base_log_odds + sum(contributions.values())
     probability = _sigmoid(log_odds)
-    exclusion_supported = isolated_return and triangle_contribution > 0
+    exclusion_supported = (
+        isolated_return or (contextual_return and (speed_contradiction or weak_apex_fix))
+    ) and triangle_contribution > 0
 
     if probability < config.valid_probability_max:
         quality_status = QualityStatus.VALID

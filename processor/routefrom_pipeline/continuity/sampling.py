@@ -41,6 +41,17 @@ class SamplingModelConfig:
     displaced_tail_min_meters: float = 100.0
     displaced_tail_accuracy_multiplier: float = 3.0
     maximum_reliable_accuracy_meters: float = 100.0
+    short_interval_weak_accuracy_meters: float = 1_000.0
+    short_interval_weak_displacement_meters: float = 500.0
+    short_interval_accuracy_displacement_fraction: float = 0.10
+    unsupported_return_min_leg_meters: float = 500.0
+    unsupported_return_ratio_max: float = 0.15
+    unsupported_return_speed_mps: float = 80.0
+    unsupported_return_bypass_speed_mps: float = 70.0
+    unsupported_return_max_seconds: float = 600.0
+    sensor_conflict_return_max_seconds: float = 120.0
+    sensor_conflict_leg_min_speed_mps: float = 15.0
+    sensor_conflict_reported_speed_max_mps: float = 3.0
     speed_support_min_mps: float = 1.2
     speed_support_absolute_tolerance_mps: float = 10.0
     speed_support_relative_tolerance: float = 0.5
@@ -105,6 +116,73 @@ def _context_for_interval(
     ):
         return SamplingContext.STATIONARY
     return SamplingContext.UNCERTAIN
+
+
+def _fast_return_without_position_support(
+    feature: PointFeatures,
+    config: SamplingModelConfig,
+) -> bool:
+    first_distance = feature.distance_prev_meters
+    second_distance = feature.distance_next_meters
+    first_duration = feature.dt_prev_seconds
+    second_duration = feature.dt_next_seconds
+    if (
+        first_distance is None
+        or second_distance is None
+        or first_duration is None
+        or second_duration is None
+    ):
+        return False
+    return (
+        min(first_distance, second_distance) >= config.unsupported_return_min_leg_meters
+        and feature.return_ratio is not None
+        and feature.return_ratio <= config.unsupported_return_ratio_max
+        and feature.bypass_speed_mps is not None
+        and feature.bypass_speed_mps <= config.unsupported_return_bypass_speed_mps
+        and max(feature.speed_prev_mps or 0.0, feature.speed_next_mps or 0.0)
+        >= config.unsupported_return_speed_mps
+        and first_duration > 0
+        and second_duration > 0
+        and first_duration + second_duration <= config.unsupported_return_max_seconds
+    )
+
+
+def _return_conflicts_with_reported_speeds(
+    points: Sequence[LocatedObservation],
+    feature: PointFeatures,
+    config: SamplingModelConfig,
+) -> bool:
+    apex_index = feature.point_index
+    if apex_index <= 0 or apex_index + 1 >= len(points):
+        return False
+    first_distance = feature.distance_prev_meters
+    second_distance = feature.distance_next_meters
+    first_duration = feature.dt_prev_seconds
+    second_duration = feature.dt_next_seconds
+    if (
+        first_distance is None
+        or second_distance is None
+        or first_duration is None
+        or second_duration is None
+    ):
+        return False
+    recorded = [
+        point.recorded_speed_mps
+        for point in points[apex_index - 1:apex_index + 2]
+        if point.recorded_speed_mps is not None
+    ]
+    return (
+        min(first_distance, second_distance) >= config.unsupported_return_min_leg_meters
+        and feature.return_ratio is not None
+        and feature.return_ratio <= config.unsupported_return_ratio_max
+        and first_duration > 0
+        and second_duration > 0
+        and first_duration + second_duration <= config.sensor_conflict_return_max_seconds
+        and min(feature.speed_prev_mps or 0.0, feature.speed_next_mps or 0.0)
+        >= config.sensor_conflict_leg_min_speed_mps
+        and len(recorded) >= 2
+        and max(recorded) <= config.sensor_conflict_reported_speed_max_mps
+    )
 
 
 def _prior(context: SamplingContext, config: SamplingModelConfig) -> tuple[float, float]:
@@ -262,6 +340,31 @@ def estimate_sampling_intervals(
             and features[index + 1].turn_degrees is not None
             and features[index + 1].turn_degrees <= config.corroborating_turn_max_degrees
         )
+        weak_short_interval_geometry = (
+            duration > 0
+            and duration < config.minimum_gap_seconds
+            and (features[index].distance_next_meters or 0.0)
+            >= config.short_interval_weak_displacement_meters
+            and max(accuracies, default=0.0)
+            >= max(
+                config.short_interval_weak_accuracy_meters,
+                (features[index].distance_next_meters or 0.0)
+                * config.short_interval_accuracy_displacement_fraction,
+            )
+            and not speed_supported
+            and not (previous_motion_support and following_motion_support)
+        )
+        unsupported_fast_return = (
+            not speed_supported
+            and (
+                _fast_return_without_position_support(features[index], config)
+                or _fast_return_without_position_support(features[index + 1], config)
+            )
+        )
+        sensor_conflict_return = (
+            _return_conflicts_with_reported_speeds(points, features[index], config)
+            or _return_conflicts_with_reported_speeds(points, features[index + 1], config)
+        )
         uncorroborated_displacement = (
             (features[index].distance_next_meters or 0.0)
             >= config.uncorroborated_displacement_min_meters
@@ -283,6 +386,9 @@ def estimate_sampling_intervals(
             or tail_gap
             or unsupported_displacement
             or weak_position_support
+            or weak_short_interval_geometry
+            or unsupported_fast_return
+            or sensor_conflict_return
             or uncorroborated_displacement
         )
         reasons = [f"sampling_context_{context.value}"]
@@ -303,6 +409,12 @@ def estimate_sampling_intervals(
             reasons.append("displaced_without_speed_support")
         if weak_position_support:
             reasons.append("long_wait_with_weak_position_support")
+        if weak_short_interval_geometry:
+            reasons.append("short_move_with_weak_position_support")
+        if unsupported_fast_return:
+            reasons.append("fast_return_without_sensor_support")
+        if sensor_conflict_return:
+            reasons.append("return_conflicts_with_reported_speeds")
         if uncorroborated_displacement:
             reasons.append("uncorroborated_displacement")
         if not is_gap and duration >= config.minimum_gap_seconds:
