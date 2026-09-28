@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   drawableInferredConnections,
+  gapExplanation,
   type PreviewInferredConnection,
+  type PreviewGap,
   selectPaths,
   selectedDistanceMeters,
   simplifySelectedPath,
@@ -49,6 +51,30 @@ test("a guessed line never bridges the boundary of discontinuous time slices", (
   assert.deepEqual(drawableInferredConnections([base], [
     { start: "2026-07-01T00:30:00Z", end: "2026-07-01T02:00:00Z" },
   ]), []);
+});
+
+test("short GPS uncertainty is not explained as a phone-off sampling gap", () => {
+  const gap: PreviewGap = {
+    id: "gap-0",
+    start: "2026-07-01T00:00:00Z",
+    end: "2026-07-01T00:01:00Z",
+    cause: "continuity_failure",
+    confidence: 0.92,
+    reasonCodes: ["short_move_with_weak_position_support"],
+    startPosition: [112.9, 28.2],
+    endPosition: [112.92, 28.21],
+  };
+  assert.match(gapExplanation(gap), /定位精度不足/);
+  assert.doesNotMatch(gapExplanation(gap), /关机/);
+  assert.match(gapExplanation({
+    ...gap,
+    reasonCodes: ["uncorroborated_displacement"],
+  }), /缺少设备速度/);
+  assert.match(gapExplanation({
+    ...gap,
+    cause: "source_sampling_gap",
+    reasonCodes: ["wait_survival_tail"],
+  }), /未携带、关机/);
 });
 
 const baseTimestamp = Date.parse("2026-07-01T00:00:00.000Z");

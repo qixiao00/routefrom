@@ -174,6 +174,10 @@ class TripAndGapTests(unittest.TestCase):
         processed = process_trace(points)
 
         self.assertEqual(len(processed.observation_gaps), 2)
+        self.assertTrue(all(
+            gap.cause == ObservationGapCause.CONTINUITY_FAILURE
+            for gap in processed.observation_gaps
+        ))
         self.assertTrue(all(not item.displayable for item in processed.inferred_connections))
         self.assertTrue(all(
             "route_inference_blocked_by_gap_evidence" in item.reason_codes

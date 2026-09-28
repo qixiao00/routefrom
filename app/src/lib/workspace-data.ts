@@ -18,6 +18,7 @@ export interface PreviewGap {
   end: string;
   cause: string;
   confidence: number;
+  reasonCodes?: string[];
   samplingContext?: "moving" | "stationary" | "uncertain" | null;
   normalWaitProbability?: number | null;
   expectedIntervalSeconds?: number | null;
@@ -192,6 +193,32 @@ export function overlapsSelection(
   ranges: readonly TimeRange[],
 ): boolean {
   return ranges.some((range) => start < range.end && end > range.start);
+}
+
+export function gapExplanation(gap: PreviewGap): string {
+  const reasons = gap.reasonCodes ?? [];
+  if (reasons.includes("return_conflicts_with_reported_speeds")) {
+    return "短时往返与设备记录的速度矛盾，两端不能当作确认路线连接。";
+  }
+  if (reasons.includes("short_move_with_weak_position_support")) {
+    return "这段位移的定位精度不足，保留观测点但不推断中间路线。";
+  }
+  if (reasons.includes("fast_return_without_sensor_support")) {
+    return "短时快速折返缺少传感器速度支持，路线保持未知。";
+  }
+  if (reasons.includes("uncorroborated_displacement")) {
+    return "大位移缺少设备速度和相邻运动的佐证，暂不确认为连续路线。";
+  }
+  if (gap.cause === "continuity_failure") {
+    return "前后观测缺乏可靠的连续性证据，未将它们合成路线。";
+  }
+  if (gap.cause === "excluded_block") {
+    return "中间观测被判为异常，前后路线仍无法可靠接续。";
+  }
+  if (gap.cause === "clock_discontinuity") {
+    return "时间记录存在不连续，无法确定这一段的先后路线。";
+  }
+  return "这段时间没有足迹观测，可能是手机未携带、关机或系统未采样。";
 }
 
 export function drawableInferredConnections(

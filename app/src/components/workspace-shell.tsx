@@ -34,6 +34,7 @@ import {
 import { loadViewportPaths, loadWorkspaceEvents, loadWorkspacePreview } from "@/lib/workspace-client";
 import {
   drawableInferredConnections,
+  gapExplanation,
   inferredConnectionWithinSelection,
   overlapsSelection,
   type PreviewGap,
@@ -451,7 +452,7 @@ function EntityInspector({ entity, inference }: {
       <>
         <div className="place-preview gap-preview"><div className="place-orbit"><TriangleAlert size={19} /></div><span>未观测</span><span>{formatDuration((Date.parse(entity.end) - Date.parse(entity.start)) / 1000)}</span></div>
         <div className="metric-grid"><div><span>开始</span><strong>{formatInstant(entity.start, true)}</strong></div><div><span>恢复</span><strong>{formatInstant(entity.end, true)}</strong></div><div><span>缺口置信度</span><strong>{Math.round(entity.confidence * 100)}%</strong></div><div><span>推测</span><strong>{guess}</strong></div></div>
-        <div className="truth-note"><TriangleAlert size={15} /><span>这段时间没有足迹观测，可能是手机关机、未携带或系统未采样。只有另行通过证据门槛的局部猜测才画虚线，且不计入确认距离。</span></div>
+        <div className="truth-note"><TriangleAlert size={15} /><span>{gapExplanation(entity)} 只有另行通过证据门槛的局部猜测才画虚线，且不计入确认距离。</span></div>
       </>
     );
   }

@@ -86,6 +86,13 @@ _UNSUPPORTED_ROUTE_REASONS = frozenset({
     "return_conflicts_with_reported_speeds",
 })
 
+_POSITION_OR_SENSOR_CONFLICT_REASONS = frozenset({
+    "short_move_with_weak_position_support",
+    "fast_return_without_sensor_support",
+    "return_conflicts_with_reported_speeds",
+    "uncorroborated_displacement",
+})
+
 
 def _sigmoid(value: float) -> float:
     if value >= 0:
@@ -141,6 +148,11 @@ def _gap_cause(
         for assessment in skipped_assessments
     ):
         return ObservationGapCause.EXCLUDED_BLOCK
+    if (
+        _POSITION_OR_SENSOR_CONFLICT_REASONS.intersection(reason_codes)
+        and "wait_survival_tail" not in reason_codes
+    ):
+        return ObservationGapCause.CONTINUITY_FAILURE
     if "observation_gap_unknown" in reason_codes:
         return ObservationGapCause.SOURCE_SAMPLING_GAP
     return ObservationGapCause.CONTINUITY_FAILURE

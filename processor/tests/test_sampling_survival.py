@@ -4,6 +4,7 @@ import unittest
 from datetime import UTC, datetime, timedelta
 
 from routefrom_pipeline.continuity import (
+    ObservationGapCause,
     SamplingContext,
     estimate_sampling_intervals,
 )
@@ -211,6 +212,11 @@ class SamplingSurvivalTests(unittest.TestCase):
         self.assertTrue(
             all("short_move_with_weak_position_support" in item.reason_codes for item in sampling)
         )
+        processed = process_trace(points)
+        self.assertTrue(all(
+            gap.cause == ObservationGapCause.CONTINUITY_FAILURE
+            for gap in processed.observation_gaps
+        ))
 
     def test_fast_short_return_without_sensor_speed_breaks_both_legs(self) -> None:
         points = [

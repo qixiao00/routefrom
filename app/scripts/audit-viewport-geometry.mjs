@@ -148,6 +148,11 @@ const reports = {
     last[1] + halfWidth,
     last[2] + halfHeight,
   ])),
+  xiamen: [
+    auditLocalZoom(9, [117.6, 24.1, 118.9, 25.2]),
+    auditLocalZoom(11, [118.0, 24.32, 118.4, 24.72]),
+    auditLocalZoom(14, [118.07, 24.43, 118.16, 24.49]),
+  ],
 };
 console.log(JSON.stringify(reports, null, 2));
-if ([...reports.world, ...reports.local].some((report) => report.violatingEdges > 0)) process.exitCode = 1;
+if ([...reports.world, ...reports.local, ...reports.xiamen].some((report) => report.violatingEdges > 0)) process.exitCode = 1;

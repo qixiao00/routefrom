@@ -26,4 +26,10 @@ cd ..
 python processor/scripts/render_viewport_audit.py data/generated/view-xiamen-z9-audit.json data/generated/view-xiamen-gap-comparison.png --preview data/generated/workspace-preview.json --compare-legacy-gaps
 ```
 
-并排图左为当前确认轨迹与获准虚线，右为旧逻辑的“每个缺口都直连”。图片位于 `data/generated/view-xiamen-gap-comparison.png`，不入库。全局 7/9/11/14 级与局部 9/11/14 级几何审计仍均为零超容差边；处理器 83 项、前端 22 项测试及生产构建通过。离线复绘验证了数据与绘图规则，但不能替代用户在浏览器中的交互验收。
+并排图左为当前确认轨迹与获准虚线，右为旧逻辑的“每个缺口都直连”。图片位于 `data/generated/view-xiamen-gap-comparison.png`，不入库。全局 7/9/11/14 级与局部 9/11/14 级几何审计仍均为零超容差边；处理器 83 项、前端 23 项测试及生产构建通过。离线复绘验证了数据与绘图规则，但不能替代用户在浏览器中的交互验收。
+
+## v10 语义与放大复核
+
+原处理器还会把短时弱定位、快速折返或速度冲突形成的缺口统称为 `source_sampling_gap`，使检查器暗示手机未携带/关机。v10 保持缺口与推测路线分离，同时将此类定位/连续性证据冲突归为既有的 `continuity_failure`；长等待的采样断点仍可归为 `source_sampling_gap`。当前真实数据的 4,983 个缺口中，2,600 个为连续性不可靠、2,342 个为源采样断点、41 个为排除异常点形成的缺口；检查器按原因给出不同解释。导出预览仅带少量关键原因码，完整证据保留在处理结果中。
+
+新增厦门同一区域的 9、11、14 级视野几何审计，三组也均为零超容差边；14 级返回 24,871 个顶点、1,669 段，最大偏离约 7 米。该全时间密集叠加仍可能遮挡底图，后续需要密度聚合和样式层级；不能把真实高密度轨迹误判为抽稀连线错误。浏览器交互观感仍需用户确认。

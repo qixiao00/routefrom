@@ -12,6 +12,12 @@ from routefrom_pipeline.pipeline import process_trace
 from routefrom_pipeline.trajectory import TimeRange, query_trajectory
 
 _PREVIEW_NAMESPACE = UUID("a2647e23-d805-4a64-843d-f605dd1004e6")
+_PREVIEW_GAP_REASONS = frozenset({
+    "short_move_with_weak_position_support",
+    "fast_return_without_sensor_support",
+    "return_conflicts_with_reported_speeds",
+    "uncorroborated_displacement",
+})
 
 
 def _instant(value: datetime) -> str:
@@ -102,6 +108,10 @@ def export_workspace_preview(
                 "end": _instant(gap.ended_at),
                 "cause": gap.cause.value,
                 "confidence": round(gap.confidence, 4),
+                "reasonCodes": [
+                    reason for reason in gap.reason_codes
+                    if reason in _PREVIEW_GAP_REASONS
+                ],
                 "samplingContext": (
                     gap.sampling_context.value if gap.sampling_context is not None else None
                 ),
