@@ -183,6 +183,20 @@ export function MapCanvas({
   }, [onViewportChange]);
 
   useEffect(() => {
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const reportWhenReady = () => {
+      if (mapRef.current?.getMap()) {
+        reportViewport();
+      } else if (attempts++ < 100) {
+        timer = setTimeout(reportWhenReady, 100);
+      }
+    };
+    reportWhenReady();
+    return () => clearTimeout(timer);
+  }, [reportViewport]);
+
+  useEffect(() => {
     if (fitRequest === 0 || fitRequest === handledFitRequest.current || !selectedBounds) return;
     handledFitRequest.current = fitRequest;
     const frame = requestAnimationFrame(fitSelection);
