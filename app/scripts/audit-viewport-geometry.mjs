@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { buildViewportSelection, queryViewportSelection } from "../src/lib/workspace-viewport.ts";
+import { haversineMeters } from "../src/lib/workspace-data.ts";
 
 const previewPath = process.argv[2] ?? path.resolve("..", "data", "generated", "workspace-preview.json");
 const preview = JSON.parse(await readFile(previewPath, "utf8"));
@@ -95,6 +96,11 @@ function auditLocalZoom(zoom, bounds) {
   let maximumDeviationMeters = 0;
   let violatingEdges = 0;
   let evaluatedEdges = 0;
+  const longestRenderedEdgeByClass = {
+    ordinary: null,
+    sparse: null,
+    high_speed: null,
+  };
   for (const piece of response.paths) {
     const key = `${piece.rangeIndex}:${piece.segmentIndex}:${piece.movementClass}`;
     const source = sourceByClass.get(key)?.find((candidate) =>
@@ -107,6 +113,7 @@ function auditLocalZoom(zoom, bounds) {
     for (let keptIndex = 1; keptIndex < piece.vertices.length; keptIndex += 1) {
       const left = piece.vertices[keptIndex - 1];
       const right = piece.vertices[keptIndex];
+      const firstSourceIndex = sourceIndex;
       let edgeDeviation = 0;
       while (sourceIndex < source.vertices.length && source.vertices[sourceIndex][0] !== right[0]) {
         edgeDeviation = Math.max(
@@ -120,6 +127,18 @@ function auditLocalZoom(zoom, bounds) {
       evaluatedEdges += 1;
       maximumDeviationMeters = Math.max(maximumDeviationMeters, edgeDeviation);
       if (edgeDeviation > tolerance + 2) violatingEdges += 1;
+      const renderedMeters = haversineMeters(left, right);
+      const previousLongest = longestRenderedEdgeByClass[piece.movementClass];
+      if (!previousLongest || renderedMeters > previousLongest.meters) {
+        longestRenderedEdgeByClass[piece.movementClass] = {
+          meters: Math.round(renderedMeters),
+          supportingVertices: sourceIndex - firstSourceIndex + 1,
+          maximumDeviationMeters: Math.round(edgeDeviation),
+          segmentIndex: piece.segmentIndex,
+          start: left[0],
+          end: right[0],
+        };
+      }
     }
   }
   return {
@@ -130,6 +149,7 @@ function auditLocalZoom(zoom, bounds) {
     maximumDeviationMeters: Math.round(maximumDeviationMeters),
     toleranceMeters: Math.round(tolerance),
     violatingEdges,
+    longestRenderedEdgeByClass,
   };
 }
 
