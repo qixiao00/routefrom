@@ -1,4 +1,4 @@
-import { overlapsSelection } from "@/lib/workspace-data";
+import { inferredConnectionWithinSelection, overlapsSelection } from "@/lib/workspace-data";
 import { parseViewportRequest, ViewportQueryError } from "@/lib/workspace-viewport";
 import {
   LocalPreviewInvalidError,
@@ -50,6 +50,9 @@ export async function POST(request: Request): Promise<Response> {
     const ranges = query.ranges;
     return Response.json({
       gaps: preview.gaps.filter((item) => overlapsSelection(item.start, item.end, ranges)),
+      inferredConnections: (preview.inferredConnections ?? []).filter((item) =>
+        inferredConnectionWithinSelection(item, ranges)
+      ),
       stays: preview.stays.filter((item) => overlapsSelection(item.start, item.end, ranges)),
       trips: preview.trips.filter((item) => overlapsSelection(item.start, item.end, ranges)),
       modeLegs: preview.modeLegs.filter((item) => overlapsSelection(item.start, item.end, ranges)),

@@ -6,7 +6,7 @@ import type { MapLayerMouseEvent, MapRef } from "react-map-gl/maplibre";
 import Map, { Layer, NavigationControl, Source } from "react-map-gl/maplibre";
 
 import type {
-  PreviewGap,
+  PreviewInferredConnection,
   PreviewStay,
   WorkspacePreview,
 } from "@/lib/workspace-data";
@@ -18,7 +18,7 @@ interface MapCanvasProps {
   selectedPaths: ViewportPath[];
   selectedBounds: ViewportBounds | null;
   selectedStays: PreviewStay[];
-  selectedGaps: PreviewGap[];
+  selectedInferredConnections: PreviewInferredConnection[];
   visibleLayers: Record<LayerId, boolean>;
   selection: { kind: SelectionKind; id: string } | null;
   mapView: MapView;
@@ -61,7 +61,7 @@ export function MapCanvas({
   selectedPaths,
   selectedBounds,
   selectedStays,
-  selectedGaps,
+  selectedInferredConnections,
   visibleLayers,
   selection,
   mapView,
@@ -103,16 +103,19 @@ export function MapCanvas({
       })),
     };
   }, [selectedPaths, visibleLayers.track, visibleLayers.sparse, visibleLayers.highSpeed]);
-  const gapData = useMemo<FeatureCollection<LineString>>(
+  const inferredData = useMemo<FeatureCollection<LineString>>(
     () => ({
       type: "FeatureCollection",
-      features: selectedGaps.map((gap) => ({
+      features: (visibleLayers.gaps ? selectedInferredConnections : []).map((connection) => ({
         type: "Feature",
-        properties: { id: gap.id, kind: "gap", confidence: gap.confidence },
-        geometry: { type: "LineString", coordinates: [gap.startPosition, gap.endPosition] },
+        properties: { id: connection.gapId, kind: "gap", confidence: connection.confidence },
+        geometry: {
+          type: "LineString",
+          coordinates: [connection.startPosition, connection.endPosition],
+        },
       })),
     }),
-    [selectedGaps],
+    [selectedInferredConnections, visibleLayers.gaps],
   );
   const stayData = useMemo<FeatureCollection<Point>>(
     () => ({
@@ -205,7 +208,7 @@ export function MapCanvas({
       mapStyle={baseStyle}
       attributionControl={{ compact: true }}
       reuseMaps
-      interactiveLayerIds={["stay-points", "gap-lines", "place-points"]}
+      interactiveLayerIds={["stay-points", "inferred-lines", "place-points"]}
       onClick={handleClick}
       onLoad={reportViewport}
       onResize={reportViewport}
@@ -229,8 +232,8 @@ export function MapCanvas({
         <Layer id="high-speed-lines" type="line" filter={["==", ["get", "movementClass"], "high_speed"]} layout={{ "line-cap": "butt", "line-join": "round" }} paint={{ "line-color": "#8aa9bb", "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1, 10, 1.3, 15, 1.9], "line-opacity": visibleLayers.highSpeed ? 0.58 : 0, "line-dasharray": [3, 2.5] }} />
       </Source>
 
-      <Source id="unknown-gaps" type="geojson" data={gapData}>
-        <Layer id="gap-lines" type="line" layout={{ "line-cap": "round" }} paint={{ "line-color": "#a3aea9", "line-width": 1.5, "line-opacity": visibleLayers.gaps ? 0.62 : 0, "line-dasharray": [2, 2.4] }} />
+      <Source id="inferred-connections" type="geojson" data={inferredData}>
+        <Layer id="inferred-lines" type="line" layout={{ "line-cap": "butt" }} paint={{ "line-color": "#a3aea9", "line-width": 1.2, "line-opacity": 0.5, "line-dasharray": [2, 3] }} />
       </Source>
 
       <Source id="stationary-events" type="geojson" data={stayData}>

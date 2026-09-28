@@ -11,6 +11,7 @@ const bootstrap = JSON.stringify({
   ...preview,
   paths: [],
   gaps: [],
+  inferredConnections: [],
   stays: [],
   trips: [],
   modeLegs: [],

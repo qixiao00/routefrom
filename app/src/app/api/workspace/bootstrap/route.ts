@@ -26,6 +26,7 @@ export async function GET(): Promise<Response> {
       ...preview,
       paths: [],
       gaps: [],
+      inferredConnections: [],
       stays: [],
       trips: [],
       modeLegs: [],

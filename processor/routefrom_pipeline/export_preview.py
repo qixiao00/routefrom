@@ -126,6 +126,28 @@ def export_workspace_preview(
             }
             for index, gap in enumerate(trace.observation_gaps)
         ],
+        "inferredConnections": [
+            {
+                "id": f"inference-{index}",
+                "gapId": f"gap-{index}",
+                "start": _instant(connection.started_at),
+                "end": _instant(connection.ended_at),
+                "kind": connection.kind.value,
+                "confidence": round(connection.confidence, 4),
+                "displayable": connection.displayable,
+                "startPosition": [
+                    round(points[connection.before_point_index].wgs_longitude, 6),
+                    round(points[connection.before_point_index].wgs_latitude, 6),
+                ],
+                "endPosition": [
+                    round(points[connection.after_point_index].wgs_longitude, 6),
+                    round(points[connection.after_point_index].wgs_latitude, 6),
+                ],
+                "reasonCodes": connection.reason_codes,
+            }
+            for index, connection in enumerate(trace.inferred_connections)
+            if connection.displayable
+        ],
         "stays": [
             {
                 "id": f"stay-{index}",

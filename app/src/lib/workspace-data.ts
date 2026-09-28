@@ -25,6 +25,19 @@ export interface PreviewGap {
   endPosition: [number, number];
 }
 
+export interface PreviewInferredConnection {
+  id: string;
+  gapId: string;
+  start: string;
+  end: string;
+  kind: "same_place" | "straight_line_context";
+  confidence: number;
+  displayable: boolean;
+  startPosition: [number, number];
+  endPosition: [number, number];
+  reasonCodes: string[];
+}
+
 export interface PreviewStay {
   id: string;
   start: string;
@@ -100,13 +113,14 @@ export interface WorkspacePreview {
   } | null;
   paths: PreviewPath[];
   gaps: PreviewGap[];
+  inferredConnections?: PreviewInferredConnection[];
   stays: PreviewStay[];
   trips: PreviewTrip[];
   modeLegs: PreviewModeLeg[];
   places: PreviewPlace[];
 }
 
-export type WorkspaceEvents = Pick<WorkspacePreview, "gaps" | "stays" | "trips" | "modeLegs">;
+export type WorkspaceEvents = Pick<WorkspacePreview, "gaps" | "inferredConnections" | "stays" | "trips" | "modeLegs">;
 
 export interface SelectedPath extends PreviewPath {
   rangeIndex: number;
@@ -178,6 +192,28 @@ export function overlapsSelection(
   ranges: readonly TimeRange[],
 ): boolean {
   return ranges.some((range) => start < range.end && end > range.start);
+}
+
+export function drawableInferredConnections(
+  connections: readonly PreviewInferredConnection[],
+  ranges: readonly TimeRange[],
+): PreviewInferredConnection[] {
+  return connections.filter((connection) =>
+    connection.displayable &&
+    connection.kind === "straight_line_context" &&
+    inferredConnectionWithinSelection(connection, ranges)
+  );
+}
+
+export function inferredConnectionWithinSelection(
+  connection: PreviewInferredConnection,
+  ranges: readonly TimeRange[],
+): boolean {
+  const start = Date.parse(connection.start);
+  const end = Date.parse(connection.end);
+  return ranges.some((range) =>
+    Date.parse(range.start) <= start && end < Date.parse(range.end)
+  );
 }
 
 export function haversineMeters(left: PreviewVertex, right: PreviewVertex): number {

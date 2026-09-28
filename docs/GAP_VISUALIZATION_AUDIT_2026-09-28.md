@@ -1,0 +1,29 @@
+# 未知缺口虚线审计（2026-09-28）
+
+这轮接续 [中距离折返审计](ANOMALY_GEOMETRY_AUDIT_2026-09-28.md)，聚焦地图上仍可能出现的跨区域杂线。用户原截图对应厦门及周边，离线复绘使用 `117.6,24.1,118.9,25.2` 视野；真实浏览器观感仍待用户刷新确认。
+
+## 根因
+
+旧前端将所有 `observation_gaps` 的前后坐标直接画成虚线，完全没有读取处理器已有的 `inferred_connections` 展示门槛。缺口的 `confidence` 表示缺口判定证据，却被检查器当成路线推测置信度。v8 真实预览有 4,983 个未知缺口；其中 3,219 个两端相距超过 500 米，607 个超过 5 公里，31 个超过 500 公里。所有这些直线以前都可能穿过地图，与“保留未知、只显示有依据的虚线猜测”原则不符。
+
+## v9 修正
+
+- 原始缺口仍保留在时间线、计数和检查器中；地图不再直接绘制缺口两端的直线。
+- 处理器将弱定位、传感器速度冲突、无佐证位移、明显不可能速度等反证纳入推测连接展示门槛。没有真实路网几何时，超过 5 公里的直线候选不显示为路线。
+- 私有预览只导出通过门槛的 `inferred_connections`，保留 `gapId`、类型、独立置信度和解释码。前端只对 `straight_line_context` 且 `displayable` 的候选绘制低对比度虚线；同地候选只在检查器中表述“可能仍在原地”。两者均不计入确认距离。
+- 检查器明确区分“缺口置信度”和“路线推测置信度”；没有可靠推测时明确显示无可靠猜测。
+- 一条推测线只有在起止观测落入同一个所选时间切片时才返回；仅与时间段重叠或横跨两个不连续切片都不能画线。
+
+v9 本地重建仍有 4,983 个缺口，但只导出 655 个可展示的推测元数据，其中 393 条可绘制的局部虚线、262 个同地候选。最长可绘制虚线约 4.47 公里。私有预览约 9.01 MB，启动包约 29 KB；源数据与重建图片均在 Git 忽略目录。
+
+## 可复现验证
+
+```powershell
+cd app
+corepack pnpm audit:geometry
+node --experimental-strip-types scripts/export-viewport-audit.mjs --bounds 117.6,24.1,118.9,25.2 --zoom 9 --output ..\data\generated\view-xiamen-z9-audit.json
+cd ..
+python processor/scripts/render_viewport_audit.py data/generated/view-xiamen-z9-audit.json data/generated/view-xiamen-gap-comparison.png --preview data/generated/workspace-preview.json --compare-legacy-gaps
+```
+
+并排图左为当前确认轨迹与获准虚线，右为旧逻辑的“每个缺口都直连”。图片位于 `data/generated/view-xiamen-gap-comparison.png`，不入库。全局 7/9/11/14 级与局部 9/11/14 级几何审计仍均为零超容差边；处理器 83 项、前端 22 项测试及生产构建通过。离线复绘验证了数据与绘图规则，但不能替代用户在浏览器中的交互验收。

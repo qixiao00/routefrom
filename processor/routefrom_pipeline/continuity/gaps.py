@@ -72,6 +72,19 @@ class GapConfig:
     route_temporal_decay_seconds: float = 6 * 60 * 60
     inferred_route_distance_multiplier: float = 1.25
     display_confidence_min: float = 0.65
+    straight_line_display_max_meters: float = 5_000.0
+
+
+_UNSUPPORTED_ROUTE_REASONS = frozenset({
+    "non_increasing_time",
+    "network_speed_implausible",
+    "uncorroborated_displacement",
+    "displaced_without_speed_support",
+    "long_wait_with_weak_position_support",
+    "short_move_with_weak_position_support",
+    "fast_return_without_sensor_support",
+    "return_conflicts_with_reported_speeds",
+})
 
 
 def _sigmoid(value: float) -> float:
@@ -216,6 +229,15 @@ def build_observation_gaps(
                 "route_geometry_not_map_matched",
                 "gap_remains_unobserved",
             )
+        route_unsupported = bool(_UNSUPPORTED_ROUTE_REASONS.intersection(edge.reason_codes))
+        route_too_long_for_unmatched_geometry = (
+            kind == InferredConnectionKind.STRAIGHT_LINE_CONTEXT
+            and displacement > config.straight_line_display_max_meters
+        )
+        if route_unsupported:
+            reasons = (*reasons, "route_inference_blocked_by_gap_evidence")
+        if route_too_long_for_unmatched_geometry:
+            reasons = (*reasons, "route_geometry_unobserved_beyond_local_context")
         connections.append(
             InferredConnection(
                 before_point_index=before_index,
@@ -226,7 +248,11 @@ def build_observation_gaps(
                 displacement_meters=displacement,
                 estimated_path_distance_meters=estimated_distance,
                 confidence=connection_confidence,
-                displayable=connection_confidence >= config.display_confidence_min,
+                displayable=(
+                    connection_confidence >= config.display_confidence_min
+                    and not route_unsupported
+                    and not route_too_long_for_unmatched_geometry
+                ),
                 counts_toward_confirmed_distance=False,
                 counts_toward_confirmed_duration=False,
                 reason_codes=reasons,

@@ -33,8 +33,11 @@ import {
 
 import { loadViewportPaths, loadWorkspaceEvents, loadWorkspacePreview } from "@/lib/workspace-client";
 import {
+  drawableInferredConnections,
+  inferredConnectionWithinSelection,
   overlapsSelection,
   type PreviewGap,
+  type PreviewInferredConnection,
   type PreviewPlace,
   type PreviewStay,
   type WorkspaceEvents,
@@ -61,7 +64,7 @@ const layerDefinitions: Array<{
   { id: "sparse", label: "稀疏连接", description: "相邻点相距 ≥500 m · 路线未观测", color: "slate", icon: Route },
   { id: "highSpeed", label: "高速移动", description: "航空及高速候选 · 单独显示", color: "blue", icon: Plane },
   { id: "stays", label: "静止事件", description: "访问、暂停与未决", color: "amber", icon: MapPin },
-  { id: "gaps", label: "未知缺口", description: "不计入确认统计", color: "slate", icon: TriangleAlert },
+  { id: "gaps", label: "推测连接", description: "仅高置信局部猜测 · 虚线", color: "slate", icon: TriangleAlert },
   { id: "places", label: "常去地点", description: "概率聚类结果", color: "blue", icon: Focus },
 ];
 
@@ -201,18 +204,22 @@ export function WorkspaceShell() {
     () => viewData?.gaps.filter((gap) => overlapsSelection(gap.start, gap.end, ranges)) ?? [],
     [viewData, ranges],
   );
+  const selectedInferredConnections = useMemo(
+    () => drawableInferredConnections(viewData?.inferredConnections ?? [], ranges),
+    [viewData, ranges],
+  );
   const distance = viewportResult?.selectedDistanceMeters ?? 0;
   const mapStays = useMemo(() => selectedStays.filter((stay) =>
     visibleBounds && stay.position[0] >= visibleBounds[0] && stay.position[0] <= visibleBounds[2] &&
     stay.position[1] >= visibleBounds[1] && stay.position[1] <= visibleBounds[3]
   ), [selectedStays, visibleBounds]);
-  const mapGaps = useMemo(() => selectedGaps.filter((gap) =>
+  const mapInferredConnections = useMemo(() => selectedInferredConnections.filter((connection) =>
     visibleBounds &&
-    Math.min(gap.startPosition[0], gap.endPosition[0]) <= visibleBounds[2] &&
-    Math.max(gap.startPosition[0], gap.endPosition[0]) >= visibleBounds[0] &&
-    Math.min(gap.startPosition[1], gap.endPosition[1]) <= visibleBounds[3] &&
-    Math.max(gap.startPosition[1], gap.endPosition[1]) >= visibleBounds[1]
-  ), [selectedGaps, visibleBounds]);
+    Math.min(connection.startPosition[0], connection.endPosition[0]) <= visibleBounds[2] &&
+    Math.max(connection.startPosition[0], connection.endPosition[0]) >= visibleBounds[0] &&
+    Math.min(connection.startPosition[1], connection.endPosition[1]) <= visibleBounds[3] &&
+    Math.max(connection.startPosition[1], connection.endPosition[1]) >= visibleBounds[1]
+  ), [selectedInferredConnections, visibleBounds]);
   const selectedDuration = useMemo(
     () => ranges.reduce((total, range) => total + (Date.parse(range.end) - Date.parse(range.start)) / 1000, 0),
     [ranges],
@@ -310,7 +317,7 @@ export function WorkspaceShell() {
             {layerDefinitions.map(({ id, label, description, icon: Icon, color }) => {
               const visible = visibleLayers[id];
               const movementClass = id === "highSpeed" ? "high_speed" : id === "sparse" ? "sparse" : "ordinary";
-              const count = id === "stays" ? selectedStays.length : id === "gaps" ? selectedGaps.length : id === "places" ? data?.places.length ?? 0 : selectedPaths.reduce((sum, path) => sum + (path.movementClass === movementClass ? path.vertices.length - 1 : 0), 0);
+              const count = id === "stays" ? selectedStays.length : id === "gaps" ? selectedInferredConnections.length : id === "places" ? data?.places.length ?? 0 : selectedPaths.reduce((sum, path) => sum + (path.movementClass === movementClass ? path.vertices.length - 1 : 0), 0);
               return (
                 <button key={id} type="button" className={`layer-item ${visible ? "is-visible" : ""}`} onClick={() => toggleLayer(id)}>
                   <span className={`layer-icon ${color}`}><Icon size={15} /></span>
@@ -348,7 +355,7 @@ export function WorkspaceShell() {
             selectedPaths={selectedPaths}
             selectedBounds={focusBounds}
             selectedStays={mapStays}
-            selectedGaps={mapGaps}
+            selectedInferredConnections={mapInferredConnections}
             visibleLayers={visibleLayers}
             selection={selection}
             mapView={mapView}
@@ -394,7 +401,14 @@ export function WorkspaceShell() {
         </div>
 
         {selectedEntity ? (
-          <EntityInspector entity={selectedEntity} />
+          <EntityInspector
+            entity={selectedEntity}
+            inference={"startPosition" in selectedEntity
+              ? viewData?.inferredConnections?.find((item) =>
+                item.gapId === selectedEntity.id && inferredConnectionWithinSelection(item, ranges)
+              )
+              : undefined}
+          />
         ) : (
           <>
             <div className="selection-overview">
@@ -423,13 +437,21 @@ export function WorkspaceShell() {
   );
 }
 
-function EntityInspector({ entity }: { entity: SelectedEntity }) {
+function EntityInspector({ entity, inference }: {
+  entity: SelectedEntity;
+  inference?: PreviewInferredConnection;
+}) {
   if ("startPosition" in entity) {
+    const guess = !inference?.displayable
+      ? "无可靠猜测"
+      : inference.kind === "same_place"
+        ? `可能仍在原地 ${Math.round(inference.confidence * 100)}%`
+        : `路线推测 ${Math.round(inference.confidence * 100)}%`;
     return (
       <>
         <div className="place-preview gap-preview"><div className="place-orbit"><TriangleAlert size={19} /></div><span>未观测</span><span>{formatDuration((Date.parse(entity.end) - Date.parse(entity.start)) / 1000)}</span></div>
-        <div className="metric-grid"><div><span>开始</span><strong>{formatInstant(entity.start, true)}</strong></div><div><span>恢复</span><strong>{formatInstant(entity.end, true)}</strong></div><div><span>置信度</span><strong>{Math.round(entity.confidence * 100)}%</strong></div><div><span>统计</span><strong>不计入</strong></div></div>
-        <div className="truth-note"><TriangleAlert size={15} /><span>这段时间可能是手机关机、未携带或系统未采样。虚线只表达上下文，不代表真实移动。</span></div>
+        <div className="metric-grid"><div><span>开始</span><strong>{formatInstant(entity.start, true)}</strong></div><div><span>恢复</span><strong>{formatInstant(entity.end, true)}</strong></div><div><span>缺口置信度</span><strong>{Math.round(entity.confidence * 100)}%</strong></div><div><span>推测</span><strong>{guess}</strong></div></div>
+        <div className="truth-note"><TriangleAlert size={15} /><span>这段时间没有足迹观测，可能是手机关机、未携带或系统未采样。只有另行通过证据门槛的局部猜测才画虚线，且不计入确认距离。</span></div>
       </>
     );
   }

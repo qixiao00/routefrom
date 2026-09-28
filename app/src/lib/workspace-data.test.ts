@@ -2,18 +2,61 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  drawableInferredConnections,
+  type PreviewInferredConnection,
   selectPaths,
   selectedDistanceMeters,
   simplifySelectedPath,
   type PreviewPath,
 } from "./workspace-data.ts";
 
-const base = Date.parse("2026-07-01T00:00:00.000Z");
+const base: PreviewInferredConnection = {
+  id: "inference-0",
+  gapId: "gap-0",
+  start: "2026-07-01T00:00:00Z",
+  end: "2026-07-01T01:00:00Z",
+  kind: "straight_line_context",
+  confidence: 0.82,
+  displayable: true,
+  startPosition: [112.9, 28.2],
+  endPosition: [112.91, 28.21],
+  reasonCodes: [],
+};
+
+test("only explicit displayable route guesses become map lines", () => {
+  const candidates = [
+    base,
+    { ...base, id: "inference-1", gapId: "gap-1", displayable: false },
+    { ...base, id: "inference-2", gapId: "gap-2", kind: "same_place" as const },
+    { ...base, id: "inference-3", gapId: "gap-3", start: "2026-08-01T00:00:00Z", end: "2026-08-01T01:00:00Z" },
+  ];
+
+  assert.deepEqual(
+    drawableInferredConnections(candidates, [{
+      start: "2026-07-01T00:00:00Z",
+      end: "2026-07-01T02:00:00Z",
+    }]).map((item) => item.id),
+    ["inference-0"],
+  );
+});
+
+test("a guessed line never bridges the boundary of discontinuous time slices", () => {
+  const ranges = [
+    { start: "2026-07-01T00:00:00Z", end: "2026-07-01T00:20:00Z" },
+    { start: "2026-07-01T00:40:00Z", end: "2026-07-01T02:00:00Z" },
+  ];
+  assert.deepEqual(drawableInferredConnections([base], ranges), []);
+  assert.deepEqual(drawableInferredConnections([base], [
+    { start: "2026-07-01T00:30:00Z", end: "2026-07-01T02:00:00Z" },
+  ]), []);
+});
+
+const baseTimestamp = Date.parse("2026-07-01T00:00:00.000Z");
 const paths: PreviewPath[] = [
   {
     segmentIndex: 4,
     vertices: Array.from({ length: 7 }, (_, index) => [
-      new Date(base + index * 10_000).toISOString(),
+      new Date(baseTimestamp + index * 10_000).toISOString(),
       121.49 + index * 0.001,
       31.2,
     ]),

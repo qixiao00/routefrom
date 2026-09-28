@@ -164,6 +164,38 @@ class TripAndGapTests(unittest.TestCase):
             20.0,
         )
 
+    def test_sensor_conflicted_return_is_not_offered_as_a_route_guess(self) -> None:
+        points = [
+            point(0, 31.2, 121.5, speed=1),
+            point(50, 31.2, 121.514, speed=0),
+            point(90, 31.2, 121.5001, speed=1),
+        ]
+
+        processed = process_trace(points)
+
+        self.assertEqual(len(processed.observation_gaps), 2)
+        self.assertTrue(all(not item.displayable for item in processed.inferred_connections))
+        self.assertTrue(all(
+            "route_inference_blocked_by_gap_evidence" in item.reason_codes
+            for item in processed.inferred_connections
+        ))
+
+    def test_unmatched_long_gap_has_no_straight_line_guess(self) -> None:
+        points = [
+            point(0, 31.2, 121.5, speed=4),
+            point(10, 31.2, 121.5001, speed=4),
+            point(7_210, 31.2, 121.8, speed=4),
+            point(7_220, 31.2, 121.8001, speed=4),
+        ]
+
+        processed = process_trace(points)
+
+        self.assertEqual(len(processed.observation_gaps), 1)
+        connection = processed.inferred_connections[0]
+        self.assertEqual(connection.kind, InferredConnectionKind.STRAIGHT_LINE_CONTEXT)
+        self.assertFalse(connection.displayable)
+        self.assertIn("route_geometry_unobserved_beyond_local_context", connection.reason_codes)
+
 
 if __name__ == "__main__":
     unittest.main()
