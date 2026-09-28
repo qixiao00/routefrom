@@ -72,6 +72,7 @@ export function MapCanvas({
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   const handledFitRequest = useRef(0);
+  const lastReportedBounds = useRef<ViewportBounds | null>(null);
   const lineData = useMemo<FeatureCollection<MultiLineString>>(() => {
     const byClass = new globalThis.Map<string, {
       rangeIndex: number;
@@ -171,9 +172,14 @@ export function MapCanvas({
     const south = Math.max(-90, bounds.getSouth());
     const east = Math.min(180, bounds.getEast());
     const north = Math.min(90, bounds.getNorth());
-    onViewportChange(west < east && south < north
+    const nextBounds: ViewportBounds = west < east && south < north
       ? [west, south, east, north]
-      : [-180, -90, 180, 90]);
+      : [-180, -90, 180, 90];
+    if (lastReportedBounds.current?.every((value, index) =>
+      Math.abs(value - nextBounds[index]) < 1e-6
+    )) return;
+    lastReportedBounds.current = nextBounds;
+    onViewportChange(nextBounds);
   }, [onViewportChange]);
 
   useEffect(() => {
@@ -211,6 +217,9 @@ export function MapCanvas({
       interactiveLayerIds={["stay-points", "inferred-lines", "place-points"]}
       onClick={handleClick}
       onLoad={reportViewport}
+      onRender={() => {
+        if (!lastReportedBounds.current) reportViewport();
+      }}
       onResize={reportViewport}
       onMoveEnd={(event) => {
         onMapViewChange({

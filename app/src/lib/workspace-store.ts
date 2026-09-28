@@ -21,6 +21,7 @@ interface WorkspaceState {
   status: "idle" | "loading" | "ready" | "error";
   error: string | null;
   data: WorkspacePreview | null;
+  viewRunId: string | null;
   ranges: TimeRange[];
   visibleLayers: Record<LayerId, boolean>;
   selection: { kind: SelectionKind; id: string } | null;
@@ -53,6 +54,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       status: "idle",
       error: null,
       data: null,
+      viewRunId: null,
       ranges: [],
       visibleLayers: { track: true, sparse: true, highSpeed: false, stays: true, gaps: true, places: true },
       selection: null,
@@ -60,19 +62,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       mapView: initialMapView,
       setLoading: () => set({ status: "loading", error: null }),
       setData: (data) =>
-        set((state) => ({
-          data,
-          status: "ready",
-          error: null,
-          ranges: state.ranges.length > 0 ? state.ranges : data.suggestedRanges,
-          cursorTime: state.cursorTime ?? data.suggestedRanges[0]?.start ?? null,
-          mapView: data.suggestedMapView &&
-            state.mapView.longitude === initialMapView.longitude &&
-            state.mapView.latitude === initialMapView.latitude &&
-            state.mapView.zoom === initialMapView.zoom
-            ? data.suggestedMapView
-            : state.mapView,
-        })),
+        set((state) => {
+          const sameRun = state.viewRunId === data.processing.runId;
+          return {
+            data,
+            viewRunId: data.processing.runId,
+            status: "ready",
+            error: null,
+            ranges: sameRun && state.ranges.length > 0 ? state.ranges : data.suggestedRanges,
+            cursorTime: sameRun && state.cursorTime ? state.cursorTime : data.suggestedRanges[0]?.start ?? null,
+            mapView: sameRun ? state.mapView : data.suggestedMapView ?? initialMapView,
+            selection: sameRun ? state.selection : null,
+          };
+        }),
       setError: (message) => set({ status: "error", error: message }),
       toggleLayer: (layer) =>
         set((state) => ({
@@ -134,6 +136,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         };
       },
       partialize: (state) => ({
+        viewRunId: state.viewRunId,
         ranges: state.ranges,
         visibleLayers: state.visibleLayers,
         mapView: state.mapView,
