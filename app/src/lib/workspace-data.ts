@@ -197,6 +197,9 @@ export function overlapsSelection(
 
 export function gapExplanation(gap: PreviewGap): string {
   const reasons = gap.reasonCodes ?? [];
+  if (reasons.includes("multi_point_return_conflicts_with_reported_speeds")) {
+    return "短时间内位置反复跳回附近，且设备速度接近静止；这段路线的连续性无法确认。";
+  }
   if (reasons.includes("return_conflicts_with_reported_speeds")) {
     return "短时往返与设备记录的速度矛盾，两端不能当作确认路线连接。";
   }

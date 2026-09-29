@@ -246,6 +246,84 @@ class SamplingSurvivalTests(unittest.TestCase):
             all("return_conflicts_with_reported_speeds" in item.reason_codes for item in sampling)
         )
 
+    def test_short_400_meter_network_position_oscillation_breaks_both_legs(self) -> None:
+        # Real Linggan data can alternate between two fixes ~400 m apart while
+        # reporting speed zero. The older 500 m return cutoff missed this burst.
+        points = [
+            point(0, 121.5, recorded_speed=0, accuracy=12),
+            point(17, 121.5042, recorded_speed=0, accuracy=30),
+            point(21, 121.5, recorded_speed=0, accuracy=11),
+            point(25, 121.5042, recorded_speed=0, accuracy=25),
+            point(29, 121.5, recorded_speed=0, accuracy=15),
+        ]
+        sampling = estimate_sampling_intervals(points, build_point_features(points))
+        self.assertTrue(all(item.is_observation_gap for item in sampling))
+        self.assertTrue(all(
+            "return_conflicts_with_reported_speeds" in item.reason_codes
+            for item in sampling
+        ))
+        processed = process_trace(points)
+        self.assertEqual(len(processed.continuity.segments), len(points))
+        self.assertTrue(all(
+            gap.cause == ObservationGapCause.CONTINUITY_FAILURE
+            for gap in processed.observation_gaps
+        ))
+
+    def test_400_meter_return_with_matching_recorded_speed_is_preserved(self) -> None:
+        points = [
+            point(0, 121.5, recorded_speed=36),
+            point(10, 121.5042, recorded_speed=36),
+            point(20, 121.5, recorded_speed=36),
+        ]
+        sampling = estimate_sampling_intervals(points, build_point_features(points))
+        self.assertTrue(all(not item.is_observation_gap for item in sampling))
+
+    def test_intermediate_fix_does_not_hide_a_sensor_contradicted_return(self) -> None:
+        points = [
+            point(0, 121.5, recorded_speed=0),
+            point(12, 121.5042, recorded_speed=0),
+            point(17, 121.5043, recorded_speed=0),
+            point(25, 121.5, recorded_speed=0),
+        ]
+        sampling = estimate_sampling_intervals(points, build_point_features(points))
+        self.assertTrue(sampling[0].is_observation_gap)
+        self.assertFalse(sampling[1].is_observation_gap)
+        self.assertTrue(sampling[2].is_observation_gap)
+        self.assertIn(
+            "multi_point_return_conflicts_with_reported_speeds",
+            sampling[0].reason_codes,
+        )
+        processed = process_trace(points)
+        self.assertEqual(len(processed.continuity.segments), 3)
+        self.assertEqual(len(processed.observation_gaps), 2)
+        self.assertTrue(all(
+            gap.cause == ObservationGapCause.CONTINUITY_FAILURE
+            for gap in processed.observation_gaps
+        ))
+
+    def test_slower_repeated_position_switch_with_zero_sensor_speed_is_unknown(self) -> None:
+        points = [
+            point(0, 121.5, recorded_speed=0),
+            point(80, 121.5042, recorded_speed=0),
+            point(90, 121.5043, recorded_speed=0),
+            point(160, 121.5, recorded_speed=0),
+        ]
+        sampling = estimate_sampling_intervals(points, build_point_features(points))
+        self.assertTrue(sampling[0].is_observation_gap)
+        self.assertFalse(sampling[1].is_observation_gap)
+        self.assertTrue(sampling[2].is_observation_gap)
+
+    def test_noisy_return_anchor_within_100_meters_still_breaks_switch(self) -> None:
+        points = [
+            point(0, 121.5, recorded_speed=0),
+            point(40, 121.505, recorded_speed=0),
+            point(45, 121.5048, recorded_speed=0),
+            point(70, 121.5009, recorded_speed=0),
+        ]
+        sampling = estimate_sampling_intervals(points, build_point_features(points))
+        self.assertTrue(sampling[0].is_observation_gap)
+        self.assertTrue(sampling[2].is_observation_gap)
+
 
 if __name__ == "__main__":
     unittest.main()

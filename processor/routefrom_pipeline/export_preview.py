@@ -16,6 +16,7 @@ _PREVIEW_GAP_REASONS = frozenset({
     "short_move_with_weak_position_support",
     "fast_return_without_sensor_support",
     "return_conflicts_with_reported_speeds",
+    "multi_point_return_conflicts_with_reported_speeds",
     "uncorroborated_displacement",
 })
 

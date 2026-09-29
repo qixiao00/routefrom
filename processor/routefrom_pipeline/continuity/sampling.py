@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from statistics import NormalDist
 
-from routefrom_pipeline.quality import LocatedObservation, PointFeatures
+from routefrom_pipeline.quality import LocatedObservation, PointFeatures, haversine_meters
 
 
 class SamplingContext(StrEnum):
@@ -50,8 +50,14 @@ class SamplingModelConfig:
     unsupported_return_bypass_speed_mps: float = 70.0
     unsupported_return_max_seconds: float = 600.0
     sensor_conflict_return_max_seconds: float = 120.0
+    sensor_conflict_return_min_leg_meters: float = 300.0
     sensor_conflict_leg_min_speed_mps: float = 15.0
     sensor_conflict_reported_speed_max_mps: float = 3.0
+    multi_point_return_max_neighbors: int = 5
+    multi_point_return_max_seconds: float = 180.0
+    multi_point_return_min_leg_meters: float = 300.0
+    multi_point_return_min_leg_speed_mps: float = 4.0
+    multi_point_return_anchor_radius_meters: float = 100.0
     speed_support_min_mps: float = 1.2
     speed_support_absolute_tolerance_mps: float = 10.0
     speed_support_relative_tolerance: float = 0.5
@@ -172,7 +178,7 @@ def _return_conflicts_with_reported_speeds(
         if point.recorded_speed_mps is not None
     ]
     return (
-        min(first_distance, second_distance) >= config.unsupported_return_min_leg_meters
+        min(first_distance, second_distance) >= config.sensor_conflict_return_min_leg_meters
         and feature.return_ratio is not None
         and feature.return_ratio <= config.unsupported_return_ratio_max
         and first_duration > 0
@@ -183,6 +189,59 @@ def _return_conflicts_with_reported_speeds(
         and len(recorded) >= 2
         and max(recorded) <= config.sensor_conflict_reported_speed_max_mps
     )
+
+
+def _multi_point_return_conflicts_with_reported_speeds(
+    points: Sequence[LocatedObservation],
+    feature: PointFeatures,
+    config: SamplingModelConfig,
+) -> bool:
+    index = feature.point_index
+    if index + 1 >= len(points):
+        return False
+    distance = feature.distance_next_meters or 0.0
+    speed = feature.speed_next_mps or 0.0
+    if (distance < config.multi_point_return_min_leg_meters
+            or speed < config.multi_point_return_min_leg_speed_mps):
+        return False
+    start, end = points[index], points[index + 1]
+    if any(
+        item.recorded_speed_mps is None
+        or item.recorded_speed_mps > config.sensor_conflict_reported_speed_max_mps
+        for item in (start, end)
+    ):
+        return False
+    radius = min(config.multi_point_return_anchor_radius_meters, distance * 0.25)
+    # A nearby fix before or after the disputed edge is independent evidence
+    # that the route doubled back. Limit both the point count and wall time so
+    # a genuine later return visit cannot invalidate an earlier trip.
+    for neighbor in range(
+        max(0, index - config.multi_point_return_max_neighbors), index
+    ):
+        anchor = points[neighbor]
+        if (anchor.recorded_speed_mps is not None
+                and anchor.recorded_speed_mps <= config.sensor_conflict_reported_speed_max_mps
+                and (end.recorded_at - anchor.recorded_at).total_seconds()
+                <= config.multi_point_return_max_seconds
+                and haversine_meters(
+                    anchor.wgs_latitude, anchor.wgs_longitude,
+                    end.wgs_latitude, end.wgs_longitude,
+                ) <= radius):
+            return True
+    for neighbor in range(
+        index + 2, min(len(points), index + 2 + config.multi_point_return_max_neighbors)
+    ):
+        anchor = points[neighbor]
+        if (anchor.recorded_speed_mps is not None
+                and anchor.recorded_speed_mps <= config.sensor_conflict_reported_speed_max_mps
+                and (anchor.recorded_at - start.recorded_at).total_seconds()
+                <= config.multi_point_return_max_seconds
+                and haversine_meters(
+                    anchor.wgs_latitude, anchor.wgs_longitude,
+                    start.wgs_latitude, start.wgs_longitude,
+                ) <= radius):
+            return True
+    return False
 
 
 def _prior(context: SamplingContext, config: SamplingModelConfig) -> tuple[float, float]:
@@ -365,6 +424,9 @@ def estimate_sampling_intervals(
             _return_conflicts_with_reported_speeds(points, features[index], config)
             or _return_conflicts_with_reported_speeds(points, features[index + 1], config)
         )
+        multi_point_sensor_conflict = _multi_point_return_conflicts_with_reported_speeds(
+            points, features[index], config
+        )
         uncorroborated_displacement = (
             (features[index].distance_next_meters or 0.0)
             >= config.uncorroborated_displacement_min_meters
@@ -389,6 +451,7 @@ def estimate_sampling_intervals(
             or weak_short_interval_geometry
             or unsupported_fast_return
             or sensor_conflict_return
+            or multi_point_sensor_conflict
             or uncorroborated_displacement
         )
         reasons = [f"sampling_context_{context.value}"]
@@ -415,6 +478,8 @@ def estimate_sampling_intervals(
             reasons.append("fast_return_without_sensor_support")
         if sensor_conflict_return:
             reasons.append("return_conflicts_with_reported_speeds")
+        if multi_point_sensor_conflict:
+            reasons.append("multi_point_return_conflicts_with_reported_speeds")
         if uncorroborated_displacement:
             reasons.append("uncorroborated_displacement")
         if not is_gap and duration >= config.minimum_gap_seconds:

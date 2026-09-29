@@ -72,6 +72,10 @@ test("short GPS uncertainty is not explained as a phone-off sampling gap", () =>
   }), /缺少设备速度/);
   assert.match(gapExplanation({
     ...gap,
+    reasonCodes: ["multi_point_return_conflicts_with_reported_speeds"],
+  }), /位置反复跳回附近/);
+  assert.match(gapExplanation({
+    ...gap,
     cause: "source_sampling_gap",
     reasonCodes: ["wait_survival_tail"],
   }), /未携带、关机/);
