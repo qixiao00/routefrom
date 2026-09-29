@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { FeatureCollection, LineString, MultiLineString, Point } from "geojson";
+import type { FeatureCollection, LineString, Point } from "geojson";
 import type { MapLayerMouseEvent, MapRef } from "react-map-gl/maplibre";
 import Map, { Layer, NavigationControl, Source } from "react-map-gl/maplibre";
 import { maplibre } from "@/lib/maplibre-runtime";
+import { buildTrackGeoJSON } from "@/lib/map-track-data";
 
 import type {
   PreviewInferredConnection,
@@ -75,37 +76,10 @@ export function MapCanvas({
   const handledFitRequest = useRef(0);
   const lastReportedBounds = useRef<ViewportBounds | null>(null);
   const lastDiagnostic = useRef("");
-  const lineData = useMemo<FeatureCollection<MultiLineString>>(() => {
-    const byClass = new globalThis.Map<string, {
-      rangeIndex: number;
-      movementClass: ViewportPath["movementClass"];
-      coordinates: number[][][];
-    }>();
-    for (const path of selectedPaths) {
-      if (path.vertices.length < 2) continue;
-      if (
-        (path.movementClass === "ordinary" && !visibleLayers.track) ||
-        (path.movementClass === "sparse" && !visibleLayers.sparse) ||
-        (path.movementClass === "high_speed" && !visibleLayers.highSpeed)
-      ) continue;
-      const key = `${path.rangeIndex}:${path.movementClass}`;
-      const group = byClass.get(key) ?? {
-        rangeIndex: path.rangeIndex,
-        movementClass: path.movementClass,
-        coordinates: [],
-      };
-      group.coordinates.push(path.vertices.map((vertex) => [vertex[1], vertex[2]]));
-      byClass.set(key, group);
-    }
-    return {
-      type: "FeatureCollection",
-      features: [...byClass.values()].map(({ rangeIndex, movementClass, coordinates }) => ({
-        type: "Feature",
-        properties: { paletteIndex: rangeIndex % 2, movementClass },
-        geometry: { type: "MultiLineString", coordinates },
-      })),
-    };
-  }, [selectedPaths, visibleLayers.track, visibleLayers.sparse, visibleLayers.highSpeed]);
+  const lineData = useMemo(
+    () => buildTrackGeoJSON(selectedPaths, visibleLayers),
+    [selectedPaths, visibleLayers.track, visibleLayers.sparse, visibleLayers.highSpeed],
+  );
   const inferredData = useMemo<FeatureCollection<LineString>>(
     () => ({
       type: "FeatureCollection",

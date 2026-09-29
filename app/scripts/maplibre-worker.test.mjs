@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import test from "node:test";
+import { buildTrackGeoJSON } from "../src/lib/map-track-data.ts";
 
 const require = createRequire(import.meta.url);
 const packageRoot = path.dirname(require.resolve("maplibre-gl/package.json"));
@@ -20,7 +21,7 @@ test("published worker and sibling match the installed MapLibre version", async 
   }
 });
 
-test("published worker boots and indexes a trajectory instead of hanging", { timeout: 10000 }, async () => {
+test("published worker indexes map GeoJSON without joining disjoint fragments", { timeout: 10000 }, async () => {
   // Exercise the shipped ESM files in an isolated worker. Only the browser
   // worker scope is shimmed; the actual MapLibre worker and GeoJSON index run.
   const code = `
@@ -34,20 +35,27 @@ test("published worker boots and indexes a trajectory instead of hanging", { tim
     await self.worker.actor.messageHandlers.LD('smoke', {
       type: 'geojson', source: 'track',
       geojsonVtOptions: { extent: 8192, maxZoom: 18, buffer: 128, tolerance: 0, cluster: false },
-      data: { type: 'FeatureCollection', features: [{
-        type: 'Feature', properties: {},
-        geometry: { type: 'LineString', coordinates: [[118.10,24.47],[118.12,24.48]] }
-      }] }
+      data: workerData.geojson
     });
     const tile = self.worker.workerSources.smoke.geojson.track._geoJSONIndex.getTile(0,0,0);
-    parentPort.postMessage({ indexedFeatures: tile?.features.length ?? 0 });
+    parentPort.postMessage({
+      indexedFeatures: tile?.features.length ?? 0,
+      lineVertexCounts: tile?.features.map(feature => feature.geometry.map(line => line.length))
+    });
   `;
+  const geojson = buildTrackGeoJSON([0, 1, 2].map((index) => ({
+    segmentIndex: index,
+    rangeIndex: index === 2 ? 1 : 0,
+    movementClass: "ordinary",
+    vertices: [["2026-01-01T00:00:00Z", index * 3, 0], ["2026-01-01T01:00:00Z", index * 3 + 1, 0]],
+  })), { track: true, sparse: true, highSpeed: true });
   const worker = new Worker(new URL(`data:text/javascript,${encodeURIComponent(code)}`), {
-    workerData: { url: new URL("maplibre-gl-worker.mjs", publicRoot).href },
+    workerData: { url: new URL("maplibre-gl-worker.mjs", publicRoot).href, geojson },
   });
   try {
     const [result] = await once(worker, "message", { signal: AbortSignal.timeout(8000) });
-    assert.equal(result.indexedFeatures, 1);
+    assert.equal(result.indexedFeatures, 2);
+    assert.deepEqual(result.lineVertexCounts, [[2, 2], [2]]);
   } finally {
     await worker.terminate();
   }
