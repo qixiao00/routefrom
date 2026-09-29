@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { FeatureCollection, LineString, MultiLineString, Point } from "geojson";
 import type { MapLayerMouseEvent, MapRef } from "react-map-gl/maplibre";
 import Map, { Layer, NavigationControl, Source } from "react-map-gl/maplibre";
+import { maplibre } from "@/lib/maplibre-runtime";
 
 import type {
   PreviewInferredConnection,
@@ -73,6 +74,7 @@ export function MapCanvas({
   const mapRef = useRef<MapRef>(null);
   const handledFitRequest = useRef(0);
   const lastReportedBounds = useRef<ViewportBounds | null>(null);
+  const lastDiagnostic = useRef("");
   const lineData = useMemo<FeatureCollection<MultiLineString>>(() => {
     const byClass = new globalThis.Map<string, {
       rangeIndex: number;
@@ -224,13 +226,32 @@ export function MapCanvas({
   return (
     <Map
       ref={mapRef}
+      mapLib={maplibre}
       initialViewState={mapView}
       mapStyle={baseStyle}
       attributionControl={{ compact: true }}
-      reuseMaps
       interactiveLayerIds={["stay-points", "inferred-lines", "place-points"]}
       onClick={handleClick}
       onLoad={reportViewport}
+      onIdle={() => {
+        if (process.env.NODE_ENV !== "development") return;
+        const map = mapRef.current?.getMap();
+        if (map?.getLayer("track-lines") && selectedPaths.length) {
+          const diagnostic = {
+            workerUrl: maplibre.getWorkerUrl(),
+            paths: selectedPaths.length,
+            sourceLoaded: map.isSourceLoaded("observed-tracks"),
+            sourceFeatures: map.querySourceFeatures("observed-tracks").length,
+            renderedTracks: map.queryRenderedFeatures({ layers: ["track-lines"] }).length,
+            renderedStays: map.queryRenderedFeatures({ layers: ["stay-points"] }).length,
+          };
+          const signature = JSON.stringify(diagnostic);
+          if (signature !== lastDiagnostic.current) {
+            lastDiagnostic.current = signature;
+            console.debug("[routefrom-map]", diagnostic);
+          }
+        }
+      }}
       onRender={() => {
         if (!lastReportedBounds.current) reportViewport();
       }}

@@ -40,11 +40,14 @@ corepack pnpm dev
 
 ```powershell
 corepack pnpm test
+corepack pnpm test:worker
 corepack pnpm typecheck
 corepack pnpm build
 corepack pnpm bench:viewport
 corepack pnpm audit:geometry
 ```
+
+MapLibre 6 的 GeoJSON 处理依赖独立 Worker。`dev` 和 `build` 会先从已安装的包复制 Worker、共享模块和许可证到 `public/maplibre/<版本>/`，地图运行时显式配置该地址。不要绕过准备脚本直接运行 `next dev`，也不要仅复制 Worker 而漏掉其共享模块。生成资源不入 Git；`test:worker` 校验版本一致性并实际启动发布的 Worker、建立轨迹索引，防止“有底图和统计但无轨迹”的回归。
 
 当前本地预览文件可保留最多 15 万个轨迹顶点及其嵌套重要度，但浏览器按地图视野、时间范围和缩放精度请求。默认不再使用会压坏曲线的固定 1.2 万点截断；处理器和视野裁剪均按最大几何偏离量保点。普通移动、两观测点相距至少 500 m 的稀疏连接、航空／高速候选分层；稀疏连接默认以低对比度虚线显示，高速候选默认隐藏，均可手动切换。确认距离仍统计完整时间选择。轨迹由 MapLibre/WebGL 绘制，不再逐帧在 Canvas 上重新投影。deck.gl 二进制图层、热力图、聚合图层、百万点性能和完整服务端工作区 API 留到下一阶段。
 

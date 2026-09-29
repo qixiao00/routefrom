@@ -1,6 +1,6 @@
 # RouteFrom 产品需求与执行台账
 
-状态：持续维护。最后更新：2026-09-28。
+状态：持续维护。最后更新：2026-09-29。
 
 本文件是 RouteFrom 的产品范围、技术阶段和验收证据总入口。算法定义以
 `docs/FOOTPRINT_PROCESSING_ALGORITHM.md` 为准，前端交互定义以
@@ -9,6 +9,7 @@
 中距离折返与弱定位复盘见 `docs/ANOMALY_GEOMETRY_AUDIT_2026-09-28.md`。
 未知缺口虚线的语义与视觉复盘见 `docs/GAP_VISUALIZATION_AUDIT_2026-09-28.md`。
 按视野加载的性能复盘见 `docs/VIEWPORT_LOADING_AUDIT_2026-09-24.md`。
+有统计但无地图轨迹的 Worker 修复见 `docs/MAP_WORKER_AUDIT_2026-09-29.md`；已通过独立线程索引测试及生产构建，浏览器绘制与原异常线视觉验收尚待验证。
 当三者冲突时，先保持数据真实性和可解释性，再调整产品交互与实现。
 
 ## 1. 产品目标

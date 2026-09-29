@@ -22,6 +22,7 @@ dist/
 .next/
 .vinext/
 *.tsbuildinfo
+/app/public/maplibre/
 .pnpm-store/
 
 # Python processor artifacts
