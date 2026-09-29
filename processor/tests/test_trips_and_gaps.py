@@ -200,6 +200,22 @@ class TripAndGapTests(unittest.TestCase):
         self.assertFalse(connection.displayable)
         self.assertIn("route_geometry_unobserved_beyond_local_context", connection.reason_codes)
 
+    def test_unmatched_neighborhood_gap_is_not_drawn_as_a_route(self) -> None:
+        points = [
+            point(0, 31.2, 121.5, speed=4),
+            point(10, 31.2, 121.5001, speed=4),
+            point(7_210, 31.2, 121.51, speed=4),
+            point(7_220, 31.2, 121.5101, speed=4),
+        ]
+
+        processed = process_trace(points)
+
+        self.assertEqual(len(processed.observation_gaps), 1)
+        connection = processed.inferred_connections[0]
+        self.assertEqual(connection.kind, InferredConnectionKind.STRAIGHT_LINE_CONTEXT)
+        self.assertFalse(connection.displayable)
+        self.assertIn("route_geometry_unobserved_beyond_local_context", connection.reason_codes)
+
 
 if __name__ == "__main__":
     unittest.main()

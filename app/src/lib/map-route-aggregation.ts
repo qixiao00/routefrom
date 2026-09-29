@@ -17,7 +17,9 @@ export function aggregateOrdinaryRoutes(paths: readonly ViewportPath[], zoom: nu
   const sy = 111320;
   const project = (lon: number, lat: number): XY => [(lon - origin[1]) * sx, (lat - origin[2]) * sy];
   const unproject = (p: XY): XY => [Number((origin[1] + p[0] / sx).toFixed(8)), Number((origin[2] + p[1] / sy).toFixed(8))];
-  const tolerance = Math.max(0.5, Math.min(8, 156543.03 * sx / 111320 / 2 ** zoom));
+  // Display-only: lines inside ~2.5 screen pixels read as one stroke. Keep
+  // the cap conservative so nearby parallel streets separate as users zoom in.
+  const tolerance = Math.max(0.5, Math.min(25, 2.5 * 156543.03 * sx / 111320 / 2 ** zoom));
   const cell = 100;
   const corridors: Corridor[] = [];
   const grid = new Map<string, number[]>();

@@ -27,6 +27,11 @@ test("jitter and different sample density merge without counting each sample as 
   assert.ok(Math.abs(counts.get(2)! - 100) < 0.01);
   assert.equal(counts.size, 1);
 });
+test("screen-overlapping GPS corridors coalesce at city zoom but separate when inspected closely", () => {
+  const routes = [path(0, [[0, 0], [100, 0]]), path(1, [[0, 12], [100, 12]])];
+  assert.ok(Math.abs(lengthByCount(routes, 14).get(2)! - 100) < 0.01);
+  assert.ok(Math.abs(lengthByCount(routes, 19).get(1)! - 200) < 0.01);
+});
 test("only overlapping section thickens; branches remain separate", () => {
   const counts = lengthByCount([path(0, [[0, 0], [100, 0]]), path(1, [[50, 0], [150, 0]])]);
   assert.ok(Math.abs(counts.get(2)! - 50) < 0.01);
@@ -34,7 +39,7 @@ test("only overlapping section thickens; branches remain separate", () => {
 });
 test("crossings, parallel roads beyond tolerance, gaps and uncertain classes stay separate", () => {
   const counts = lengthByCount([
-    path(0, [[0, 0], [100, 0]]), path(1, [[0, 12], [100, 12]]),
+    path(0, [[0, 0], [100, 0]]), path(1, [[0, 35], [100, 35]]),
     path(2, [[50, -50], [50, 50]]), path(3, [[200, 0], [250, 0]]),
     { ...path(4, [[0, 0], [100, 0]]), movementClass: "sparse" },
   ]);

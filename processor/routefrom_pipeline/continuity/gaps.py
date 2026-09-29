@@ -72,7 +72,7 @@ class GapConfig:
     route_temporal_decay_seconds: float = 6 * 60 * 60
     inferred_route_distance_multiplier: float = 1.25
     display_confidence_min: float = 0.65
-    straight_line_display_max_meters: float = 5_000.0
+    straight_line_display_max_meters: float = 250.0
 
 
 _UNSUPPORTED_ROUTE_REASONS = frozenset({

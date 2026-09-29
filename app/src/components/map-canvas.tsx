@@ -80,6 +80,7 @@ export function MapCanvas({
   const lastReportedBounds = useRef<ViewportBounds | null>(null);
   const lastDiagnostic = useRef("");
   const [placeGroup, setPlaceGroup] = useState<{ position: number[]; ids: string[] } | null>(null);
+  const denseHistory = selectedPaths.length > 500;
   const lineData = useMemo(
     () => ({ type: "FeatureCollection" as const, features: [
       ...(visibleLayers.track && aggregatedRoutes ? aggregatedRoutes.features : []),
@@ -271,7 +272,7 @@ export function MapCanvas({
       )}
 
       <Source key="observed-tracks" id="observed-tracks" type="geojson" data={lineData}>
-        <Layer id="track-lines" type="line" filter={["==", ["get", "movementClass"], "ordinary"]} layout={{ "line-cap": "round", "line-join": "round" }} paint={{ "line-color": ["case", ["==", ["get", "paletteIndex"], 0], "#9be2cf", "#7dafef"], "line-width": ["interpolate", ["linear"], ["zoom"], 4, ["interpolate", ["linear"], ["get", "traversalCount"], 1, 1, 3, 2, 10, 3.5, 30, 5], 15, ["interpolate", ["linear"], ["get", "traversalCount"], 1, 2.2, 3, 3.5, 10, 5.5, 30, 8]], "line-opacity": visibleLayers.track ? ["interpolate", ["linear"], ["get", "traversalCount"], 1, 0.42, 2, 0.57, 3, 0.66, 5, 0.73, 10, 0.8, 20, 0.87] : 0 }} />
+        <Layer id="track-lines" type="line" filter={["==", ["get", "movementClass"], "ordinary"]} layout={{ "line-cap": "round", "line-join": "round" }} paint={{ "line-color": ["case", ["==", ["get", "paletteIndex"], 0], "#9be2cf", "#7dafef"], "line-width": ["interpolate", ["linear"], ["zoom"], 4, ["interpolate", ["linear"], ["get", "traversalCount"], 1, 1, 3, 2, 10, 3.5, 30, 5], 15, ["interpolate", ["linear"], ["get", "traversalCount"], 1, denseHistory ? 1.4 : 2.2, 3, 3.5, 10, 5.5, 30, 8]], "line-opacity": visibleLayers.track ? ["interpolate", ["linear"], ["get", "traversalCount"], 1, denseHistory ? 0.16 : 0.42, 2, denseHistory ? 0.34 : 0.57, 3, denseHistory ? 0.48 : 0.66, 5, 0.65, 10, 0.8, 20, 0.87] : 0 }} />
         <Layer id="sparse-lines" type="line" filter={["==", ["get", "movementClass"], "sparse"]} layout={{ "line-cap": "butt", "line-join": "round" }} paint={{ "line-color": "#9aa8a5", "line-width": ["interpolate", ["linear"], ["zoom"], 4, 0.8, 10, 1.1, 15, 1.5], "line-opacity": visibleLayers.sparse ? 0.45 : 0, "line-dasharray": [2, 3] }} />
         <Layer id="high-speed-lines" type="line" filter={["==", ["get", "movementClass"], "high_speed"]} layout={{ "line-cap": "butt", "line-join": "round" }} paint={{ "line-color": "#8aa9bb", "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1, 10, 1.3, 15, 1.9], "line-opacity": visibleLayers.highSpeed ? 0.58 : 0, "line-dasharray": [3, 2.5] }} />
       </Source>
