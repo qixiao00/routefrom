@@ -27,38 +27,14 @@ interface MapCanvasProps {
   selection: { kind: SelectionKind; id: string } | null;
   mapView: MapView;
   fitRequest: number;
+  globeRequest: number;
   onMapViewChange: (view: MapView) => void;
   onViewportChange: (bounds: ViewportBounds) => void;
   onSelect: (selection: { kind: SelectionKind; id: string } | null) => void;
 }
 
-const baseStyle = {
-  version: 8 as const,
-  sources: {
-    "osm-raster": {
-      type: "raster" as const,
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution: "© OpenStreetMap contributors",
-      maxzoom: 19,
-    },
-  },
-  layers: [
-    { id: "background", type: "background" as const, paint: { "background-color": "#080d0f" } },
-    {
-      id: "osm-raster-layer",
-      type: "raster" as const,
-      source: "osm-raster",
-      paint: {
-        "raster-opacity": 0.27,
-        "raster-saturation": -0.88,
-        "raster-contrast": 0.28,
-        "raster-brightness-min": 0.03,
-        "raster-brightness-max": 0.38,
-      },
-    },
-  ],
-};
+// Vector tiles keep the globe crisp at a distance and the street map legible up close.
+const baseStyle = "https://tiles.openfreemap.org/styles/dark";
 
 export function MapCanvas({
   data,
@@ -71,12 +47,14 @@ export function MapCanvas({
   selection,
   mapView,
   fitRequest,
+  globeRequest,
   onMapViewChange,
   onViewportChange,
   onSelect,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   const handledFitRequest = useRef(0);
+  const handledGlobeRequest = useRef(0);
   const lastReportedBounds = useRef<ViewportBounds | null>(null);
   const lastDiagnostic = useRef("");
   const [placeGroup, setPlaceGroup] = useState<{ position: number[]; ids: string[] } | null>(null);
@@ -177,6 +155,18 @@ export function MapCanvas({
   }, [fitRequest, fitSelection, selectedBounds]);
 
   useEffect(() => {
+    if (globeRequest === 0 || globeRequest === handledGlobeRequest.current) return;
+    handledGlobeRequest.current = globeRequest;
+    mapRef.current?.flyTo({
+      center: [mapView.longitude, Math.max(-55, Math.min(55, mapView.latitude))],
+      zoom: 1.7,
+      pitch: 0,
+      bearing: 0,
+      duration: 1100,
+    });
+  }, [globeRequest, mapView.latitude, mapView.longitude]);
+
+  useEffect(() => {
     const coordinate = selection?.kind === "stay"
       ? data.stays.find((item) => item.id === selection.id)?.position
       : selection?.kind === "place"
@@ -210,7 +200,20 @@ export function MapCanvas({
         ...(visibleLayers.gaps ? ["inferred-lines"] : []),
       ]}
       onClick={handleClick}
-      onLoad={reportViewport}
+      onLoad={() => {
+        const map = mapRef.current?.getMap();
+        map?.setProjection({ type: "globe" });
+        map?.setSky({
+          "sky-color": "#090f1a",
+          "horizon-color": "#253d4b",
+          "fog-color": "#12242b",
+          "fog-ground-blend": 0.32,
+          "horizon-fog-blend": 0.45,
+          "sky-horizon-blend": 0.68,
+          "atmosphere-blend": 0.75,
+        });
+        reportViewport();
+      }}
       onIdle={() => {
         if (process.env.NODE_ENV !== "development") return;
         const map = mapRef.current?.getMap();

@@ -15,6 +15,7 @@ import {
   Eye,
   EyeOff,
   Focus,
+  Globe2,
   Layers3,
   LoaderCircle,
   Map as MapIcon,
@@ -107,6 +108,7 @@ const EMPTY_PATHS: ViewportPath[] = [];
 export function WorkspaceShell() {
   const [activeTool, setActiveTool] = useState("layers");
   const [fitRequest, setFitRequest] = useState(0);
+  const [globeRequest, setGlobeRequest] = useState(0);
   const [visibleBounds, setVisibleBounds] = useState<ViewportBounds | null>(null);
   const [viewportState, setViewportState] = useState<{
     sourceKey: string;
@@ -362,6 +364,7 @@ export function WorkspaceShell() {
             selection={selection}
             mapView={mapView}
             fitRequest={fitRequest}
+            globeRequest={globeRequest}
             onMapViewChange={setMapView}
             onViewportChange={setVisibleBounds}
             onSelect={setSelection}
@@ -376,6 +379,7 @@ export function WorkspaceShell() {
         )}
         <div className="map-toolbar">
           <button className="active" type="button" disabled={!focusBounds} onClick={() => setFitRequest((value) => value + 1)}><Focus size={16} />聚焦可见轨迹</button>
+          <button type="button" onClick={() => setGlobeRequest((value) => value + 1)}><Globe2 size={16} />查看全球足迹</button>
           <button type="button" aria-label="地图设置"><Settings2 size={16} /></button>
         </div>
         <div className="map-stat">
