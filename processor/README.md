@@ -28,6 +28,9 @@ jobs retain the source import and processing run IDs for audit and recovery.
 Confirmed visits are clustered into versioned places with adaptive spatial
 scales and probability-margin binding. The current place stage intentionally
 does not claim building or POI identity without map evidence.
+Nearby place fragments with overlapping observed positional support are
+coalesced into one identity with a bounded 100 m group diameter; visits stay
+immutable and the merged place's frequency is recomputed from all visits.
 The worker also stores both cleaned and ENU Kalman/RTS-smoothed GPS variants.
 Smoothing never crosses continuity gaps, locally falls back when it leaves the
 measurement support radius, and only becomes preferred when run-level quality

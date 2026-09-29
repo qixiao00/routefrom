@@ -15,6 +15,7 @@ def event(
     longitude: float,
     confidence: float = 0.9,
     duration_hours: float = 2.0,
+    radius_meters: float = 8.0,
 ) -> StationaryEvent:
     started_at = datetime(2026, 7, 1, 1, tzinfo=UTC) + timedelta(days=day - 1)
     ended_at = started_at + timedelta(hours=duration_hours)
@@ -29,7 +30,7 @@ def event(
         possible_duration_seconds=duration_hours * 3_600,
         centroid_latitude=31.2,
         centroid_longitude=longitude,
-        spatial_radius_meters=8,
+        spatial_radius_meters=radius_meters,
         adaptive_spatial_scale_meters=20,
         effective_point_count=5,
         confidence=confidence,
@@ -84,6 +85,31 @@ class PlaceResolutionTests(unittest.TestCase):
             config=config,
         )
 
+        self.assertEqual(len(result.places), 2)
+        self.assertEqual(max(place.visit_count for place in result.places), 2)
+
+    def test_overlapping_place_fragments_merge_visits_and_bindings(self) -> None:
+        stays = StayResult(events=(
+            event(1, longitude=121.50000, radius_meters=55),
+            event(2, longitude=121.50002, radius_meters=55),
+            event(3, longitude=121.50048, radius_meters=3, confidence=0.5),
+            event(4, longitude=121.51000),
+        ))
+        result = resolve_places(stays, eligible_event_indices=(0, 1, 2, 3))
+        self.assertEqual(len(result.places), 2)
+        merged = next(place for place in result.places if place.visit_count == 3)
+        self.assertEqual(merged.visit_event_indices, (0, 1, 2))
+        self.assertTrue(merged.evidence["overlap_merged"])
+        self.assertEqual({binding.place_index for binding in result.bindings[:3]},
+                         {result.places.index(merged)})
+
+    def test_overlap_merge_does_not_chain_beyond_bounded_diameter(self) -> None:
+        stays = StayResult(events=(
+            event(1, longitude=121.50000, radius_meters=85),
+            event(2, longitude=121.50080, radius_meters=85),
+            event(3, longitude=121.50160, radius_meters=85),
+        ))
+        result = resolve_places(stays, eligible_event_indices=(0, 1, 2))
         self.assertEqual(len(result.places), 2)
         self.assertEqual(max(place.visit_count for place in result.places), 2)
 

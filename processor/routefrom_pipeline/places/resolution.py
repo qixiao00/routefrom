@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -25,6 +25,9 @@ class PlaceConfig:
     frequent_distinct_day_center: float = 2.0
     frequent_dwell_hours_center: float = 4.0
     frequent_span_days_center: float = 7.0
+    overlap_merge_slack_meters: float = 0.0
+    overlap_merge_min_radius_meters: float = 25.0
+    overlap_merge_max_diameter_meters: float = 100.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,6 +320,58 @@ def _build_place(
     )
 
 
+def _merge_overlapping_places(
+    clusters: Sequence[tuple[int, ...]],
+    events: Sequence[StationaryEvent],
+    timezone: ZoneInfo,
+    config: PlaceConfig,
+) -> list[tuple[int, ...]]:
+    """Coalesce fragmented place identities without chaining across a district.
+
+    An established place is the anchor. A nearby fragment must fall within
+    that anchor's observed positional support; every member of the resulting
+    group must also stay within a fixed diameter. Original visits are retained.
+    """
+    places = [_build_place(indices, events, timezone, config) for indices in clusters]
+    ranked = sorted(range(len(places)), key=lambda index: (-places[index].visit_count, index))
+    groups: list[list[int]] = []
+    for index in ranked:
+        candidate = places[index]
+        chosen: list[int] | None = None
+        for group in groups:
+            anchor = places[group[0]]
+            anchor_distance = haversine_meters(
+                anchor.centroid_latitude, anchor.centroid_longitude,
+                candidate.centroid_latitude, candidate.centroid_longitude,
+            )
+            support = max(
+                config.overlap_merge_min_radius_meters,
+                min(config.overlap_merge_max_diameter_meters,
+                    anchor.spatial_radius_meters + candidate.spatial_radius_meters
+                    + config.overlap_merge_slack_meters),
+            )
+            if anchor_distance > support:
+                continue
+            if any(
+                haversine_meters(
+                    places[member].centroid_latitude, places[member].centroid_longitude,
+                    candidate.centroid_latitude, candidate.centroid_longitude,
+                ) > config.overlap_merge_max_diameter_meters
+                for member in group
+            ):
+                continue
+            chosen = group
+            break
+        if chosen is None:
+            groups.append([index])
+        else:
+            chosen.append(index)
+    return sorted(
+        (tuple(sorted(event for index in group for event in clusters[index])) for group in groups),
+        key=lambda indices: indices[0],
+    )
+
+
 def _event_place_score(
     event: StationaryEvent,
     place: PlaceCluster,
@@ -329,9 +384,16 @@ def _event_place_score(
         place.centroid_latitude,
         place.centroid_longitude,
     )
-    compatibility = min(
+    pair_scores = (
         _event_pair_probability(event, events[index], config)
         for index in place.visit_event_indices
+    )
+    compatibility = (
+        max(pair_scores)
+        if place.evidence.get("overlap_merged") and any(
+            event is events[index] for index in place.visit_event_indices
+        )
+        else min(pair_scores)
     )
     return compatibility, distance
 
@@ -355,6 +417,10 @@ def resolve_places(
         raise ValueError("unknown_place_prior must be positive")
     if config.maximum_candidates < 1:
         raise ValueError("maximum_candidates must be positive")
+    if config.overlap_merge_min_radius_meters < 0 or config.overlap_merge_slack_meters < 0:
+        raise ValueError("overlap merge radii must be nonnegative")
+    if config.overlap_merge_max_diameter_meters <= 0:
+        raise ValueError("overlap merge maximum diameter must be positive")
     try:
         timezone_info = ZoneInfo(timezone)
     except ZoneInfoNotFoundError as exc:
@@ -368,9 +434,19 @@ def resolve_places(
     clustered_indices = _complete_link_clusters(
         unique_indices, stays.events, config
     )
+    merged_indices = _merge_overlapping_places(
+        clustered_indices, stays.events, timezone_info, config
+    )
+    initial_memberships = {frozenset(indices) for indices in clustered_indices}
     places = tuple(
         _build_place(indices, stays.events, timezone_info, config)
-        for indices in clustered_indices
+        for indices in merged_indices
+    )
+    places = tuple(
+        place if frozenset(place.visit_event_indices) in initial_memberships else replace(
+            place, evidence={**place.evidence, "overlap_merged": True}
+        )
+        for place in places
     )
     maximum_binding_distance = math.hypot(
         config.spatial_scale_cap_meters,
