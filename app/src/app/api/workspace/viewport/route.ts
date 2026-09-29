@@ -11,6 +11,7 @@ import {
   readLocalWorkspacePreview,
 } from "@/server/local-preview";
 import type { WorkspacePreview } from "@/lib/workspace-data";
+import { aggregateOrdinaryRoutes } from "@/lib/map-route-aggregation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,8 +64,10 @@ export async function POST(request: Request): Promise<Response> {
         selection: buildViewportSelection(preview.paths, query.ranges, preview.modeLegs),
       };
     }
+    const result = queryViewportSelection(cachedSelection.selection, query.bounds, query.detailZoom);
+    result.aggregatedRoutes = aggregateOrdinaryRoutes(result.paths, query.detailZoom);
     return Response.json(
-      queryViewportSelection(cachedSelection.selection, query.bounds, query.detailZoom),
+      result,
       { headers: PRIVATE_HEADERS },
     );
   } catch (error) {

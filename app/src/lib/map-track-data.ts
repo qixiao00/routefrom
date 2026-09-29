@@ -31,7 +31,7 @@ export function buildTrackGeoJSON(
     type: "FeatureCollection",
     features: [...groups.values()].map(({ rangeIndex, movementClass, coordinates }) => ({
       type: "Feature",
-      properties: { paletteIndex: rangeIndex % 2, movementClass },
+      properties: { paletteIndex: rangeIndex % 2, movementClass, traversalCount: 1 },
       geometry: { type: "MultiLineString", coordinates },
     })),
   };

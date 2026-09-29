@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { FeatureCollection, LineString, Point } from "geojson";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FeatureCollection, LineString, MultiLineString, Point } from "geojson";
 import type { MapLayerMouseEvent, MapRef } from "react-map-gl/maplibre";
-import Map, { Layer, NavigationControl, Source } from "react-map-gl/maplibre";
+import Map, { Layer, Marker, NavigationControl, Popup, Source } from "react-map-gl/maplibre";
 import { maplibre } from "@/lib/maplibre-runtime";
 import { buildTrackGeoJSON } from "@/lib/map-track-data";
+import { buildPlaceGeoJSON } from "@/lib/map-place-data";
 
 import type {
   PreviewInferredConnection,
@@ -18,6 +19,7 @@ import type { ViewportBounds, ViewportPath } from "@/lib/workspace-viewport";
 interface MapCanvasProps {
   data: WorkspacePreview;
   selectedPaths: ViewportPath[];
+  aggregatedRoutes?: FeatureCollection<MultiLineString>;
   selectedBounds: ViewportBounds | null;
   selectedStays: PreviewStay[];
   selectedInferredConnections: PreviewInferredConnection[];
@@ -61,6 +63,7 @@ const baseStyle = {
 export function MapCanvas({
   data,
   selectedPaths,
+  aggregatedRoutes,
   selectedBounds,
   selectedStays,
   selectedInferredConnections,
@@ -76,9 +79,13 @@ export function MapCanvas({
   const handledFitRequest = useRef(0);
   const lastReportedBounds = useRef<ViewportBounds | null>(null);
   const lastDiagnostic = useRef("");
+  const [placeGroup, setPlaceGroup] = useState<{ position: number[]; ids: string[] } | null>(null);
   const lineData = useMemo(
-    () => buildTrackGeoJSON(selectedPaths, visibleLayers),
-    [selectedPaths, visibleLayers.track, visibleLayers.sparse, visibleLayers.highSpeed],
+    () => ({ type: "FeatureCollection" as const, features: [
+      ...(visibleLayers.track && aggregatedRoutes ? aggregatedRoutes.features : []),
+      ...buildTrackGeoJSON(selectedPaths, { ...visibleLayers, track: visibleLayers.track && !aggregatedRoutes }).features,
+    ] }),
+    [selectedPaths, aggregatedRoutes, visibleLayers.track, visibleLayers.sparse, visibleLayers.highSpeed],
   );
   const inferredData = useMemo<FeatureCollection<LineString>>(
     () => ({
@@ -112,21 +119,8 @@ export function MapCanvas({
     [selectedStays, selection],
   );
   const placeData = useMemo<FeatureCollection<Point>>(
-    () => ({
-      type: "FeatureCollection",
-      features: data.places.map((place) => ({
-        type: "Feature",
-        properties: {
-          id: place.id,
-          kind: "place",
-          name: place.name,
-          frequency: place.frequentProbability,
-          selected: selection?.kind === "place" && selection.id === place.id,
-        },
-        geometry: { type: "Point", coordinates: place.position },
-      })),
-    }),
-    [data.places, selection],
+    () => buildPlaceGeoJSON(data.places, mapView.zoom, selection?.kind === "place" ? selection.id : undefined),
+    [data.places, selection, mapView.zoom],
   );
 
   const fitSelection = useCallback(() => {
@@ -192,6 +186,11 @@ export function MapCanvas({
 
   function handleClick(event: MapLayerMouseEvent) {
     const feature = event.features?.[0];
+    if (feature && feature.properties?.placeCount > 1 && feature.geometry.type === "Point") {
+      setPlaceGroup({ position: feature.geometry.coordinates, ids: JSON.parse(feature.properties.memberIds) });
+      return;
+    }
+    setPlaceGroup(null);
     const kind = feature?.properties?.kind as SelectionKind | undefined;
     const id = feature?.properties?.id as string | undefined;
     onSelect(kind && id ? { kind, id } : null);
@@ -204,7 +203,11 @@ export function MapCanvas({
       initialViewState={mapView}
       mapStyle={baseStyle}
       attributionControl={{ compact: true }}
-      interactiveLayerIds={["stay-points", "inferred-lines", "place-points"]}
+      interactiveLayerIds={[
+        ...(visibleLayers.places ? ["place-points"] : []),
+        ...(visibleLayers.stays ? ["stay-points"] : []),
+        ...(visibleLayers.gaps ? ["inferred-lines"] : []),
+      ]}
       onClick={handleClick}
       onLoad={reportViewport}
       onIdle={() => {
@@ -243,23 +246,46 @@ export function MapCanvas({
       cursor="default"
     >
       <NavigationControl position="bottom-right" visualizePitch />
+      {visibleLayers.places && placeData.features.filter(f => f.properties!.placeCount > 1).map(feature => (
+        <Marker key={feature.properties!.memberIds} longitude={feature.geometry.coordinates[0]} latitude={feature.geometry.coordinates[1]} anchor="center">
+          <button className="place-group-badge" aria-label={feature.properties!.name} title={feature.properties!.name} onClick={event => {
+            event.stopPropagation();
+            setPlaceGroup({ position: feature.geometry.coordinates, ids: JSON.parse(feature.properties!.memberIds) });
+          }}>{feature.properties!.placeCount}</button>
+        </Marker>
+      ))}
+      {placeGroup && visibleLayers.places && (
+        <Popup longitude={placeGroup.position[0]} latitude={placeGroup.position[1]} onClose={() => setPlaceGroup(null)} closeOnClick={false} maxWidth="260px" className="place-group-popup">
+          <strong>{placeGroup.ids.length} 个重叠地点</strong>
+          <p>共 {data.places.filter(p => placeGroup.ids.includes(p.id)).reduce((n, p) => n + p.visitCount, 0)} 次访问记录</p>
+          <button onClick={() => {
+            mapRef.current?.flyTo({ center: [placeGroup.position[0], placeGroup.position[1]], zoom: Math.min(20, mapView.zoom + 2), duration: 500 });
+            setPlaceGroup(null);
+          }}>放大查看</button>
+          <div style={{ maxHeight: 180, overflowY: "auto" }}>
+            {data.places.filter(p => placeGroup.ids.includes(p.id)).map(p => (
+              <button key={p.id} style={{ display: "block", marginTop: 8 }} onClick={() => { onSelect({ kind: "place", id: p.id }); setPlaceGroup(null); }}>{p.name} · {p.visitCount} 次</button>
+            ))}
+          </div>
+        </Popup>
+      )}
 
-      <Source id="observed-tracks" type="geojson" data={lineData}>
-        <Layer id="track-lines" type="line" filter={["==", ["get", "movementClass"], "ordinary"]} layout={{ "line-cap": "round", "line-join": "round" }} paint={{ "line-color": ["case", ["==", ["get", "paletteIndex"], 0], "#9be2cf", "#7dafef"], "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1, 10, 1.4, 15, 2.2], "line-opacity": visibleLayers.track ? 0.82 : 0 }} />
+      <Source key="observed-tracks" id="observed-tracks" type="geojson" data={lineData}>
+        <Layer id="track-lines" type="line" filter={["==", ["get", "movementClass"], "ordinary"]} layout={{ "line-cap": "round", "line-join": "round" }} paint={{ "line-color": ["case", ["==", ["get", "paletteIndex"], 0], "#9be2cf", "#7dafef"], "line-width": ["interpolate", ["linear"], ["zoom"], 4, ["interpolate", ["linear"], ["get", "traversalCount"], 1, 1, 3, 2, 10, 3.5, 30, 5], 15, ["interpolate", ["linear"], ["get", "traversalCount"], 1, 2.2, 3, 3.5, 10, 5.5, 30, 8]], "line-opacity": visibleLayers.track ? 0.82 : 0 }} />
         <Layer id="sparse-lines" type="line" filter={["==", ["get", "movementClass"], "sparse"]} layout={{ "line-cap": "butt", "line-join": "round" }} paint={{ "line-color": "#9aa8a5", "line-width": ["interpolate", ["linear"], ["zoom"], 4, 0.8, 10, 1.1, 15, 1.5], "line-opacity": visibleLayers.sparse ? 0.45 : 0, "line-dasharray": [2, 3] }} />
         <Layer id="high-speed-lines" type="line" filter={["==", ["get", "movementClass"], "high_speed"]} layout={{ "line-cap": "butt", "line-join": "round" }} paint={{ "line-color": "#8aa9bb", "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1, 10, 1.3, 15, 1.9], "line-opacity": visibleLayers.highSpeed ? 0.58 : 0, "line-dasharray": [3, 2.5] }} />
       </Source>
 
-      <Source id="inferred-connections" type="geojson" data={inferredData}>
+      <Source key="inferred-connections" id="inferred-connections" type="geojson" data={inferredData}>
         <Layer id="inferred-lines" type="line" layout={{ "line-cap": "butt" }} paint={{ "line-color": "#a3aea9", "line-width": 1.2, "line-opacity": 0.5, "line-dasharray": [2, 3] }} />
       </Source>
 
-      <Source id="stationary-events" type="geojson" data={stayData}>
+      <Source key="stationary-events" id="stationary-events" type="geojson" data={stayData}>
         <Layer id="stay-points" type="circle" paint={{ "circle-radius": ["case", ["get", "selected"], 8, ["==", ["get", "eventKind"], "visit"], 5, 3.5], "circle-color": ["case", ["==", ["get", "eventKind"], "visit"], "#d9a657", ["==", ["get", "eventKind"], "transport_pause"], "#9da7a3", "#6f7a76"], "circle-opacity": visibleLayers.stays ? 0.9 : 0, "circle-stroke-width": ["case", ["get", "selected"], 3, 1.2], "circle-stroke-color": "#f5ead7" }} />
       </Source>
 
-      <Source id="frequent-places" type="geojson" data={placeData}>
-        <Layer id="place-points" type="circle" paint={{ "circle-radius": ["interpolate", ["linear"], ["get", "frequency"], 0, 5, 1, 11], "circle-color": "#72a7ff", "circle-opacity": visibleLayers.places ? 0.2 : 0, "circle-stroke-width": ["case", ["get", "selected"], 2.5, 1], "circle-stroke-color": "#a8c7ff" }} />
+      <Source key="frequent-places" id="frequent-places" type="geojson" data={placeData}>
+        <Layer id="place-points" type="circle" paint={{ "circle-radius": ["case", [">", ["get", "placeCount"], 1], 12, ["interpolate", ["linear"], ["get", "frequency"], 0, 5, 1, 11]], "circle-color": "#72a7ff", "circle-opacity": visibleLayers.places ? 0.3 : 0, "circle-stroke-width": ["case", ["get", "selected"], 2.5, 1], "circle-stroke-color": "#a8c7ff" }} />
         <Layer id="place-labels" type="symbol" minzoom={10} layout={{ "text-field": ["get", "name"], "text-size": 11, "text-offset": [0, 1.4], "text-anchor": "top", "text-allow-overlap": false }} paint={{ "text-color": "#c8d7e9", "text-halo-color": "#0a0e10", "text-halo-width": 1.5, "text-opacity": visibleLayers.places ? 0.78 : 0 }} />
       </Source>
     </Map>

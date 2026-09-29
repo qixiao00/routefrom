@@ -8,6 +8,7 @@ import {
   type SelectedPath,
 } from "./workspace-data.ts";
 import { normalizeTimeRanges, type TimeRange } from "./workspace-query.ts";
+import type { FeatureCollection, MultiLineString } from "geojson";
 
 export type ViewportBounds = [west: number, south: number, east: number, north: number];
 
@@ -21,6 +22,7 @@ export interface ViewportRequest {
 
 export interface ViewportResponse {
   paths: ViewportPath[];
+  aggregatedRoutes?: FeatureCollection<MultiLineString>;
   coverageBounds: ViewportBounds;
   detailZoom: number;
   selectedBounds: ViewportBounds | null;

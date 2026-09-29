@@ -61,12 +61,12 @@ const layerDefinitions: Array<{
   color: string;
   icon: typeof Route;
 }> = [
-  { id: "track", label: "观测轨迹", description: "普通移动的确认段", color: "mint", icon: Route },
+  { id: "track", label: "观测轨迹", description: "重叠路段合并 · 越常经过越粗", color: "mint", icon: Route },
   { id: "sparse", label: "稀疏连接", description: "相邻点相距 ≥500 m · 路线未观测", color: "slate", icon: Route },
   { id: "highSpeed", label: "高速移动", description: "航空及高速候选 · 单独显示", color: "blue", icon: Plane },
   { id: "stays", label: "静止事件", description: "访问、暂停与未决", color: "amber", icon: MapPin },
   { id: "gaps", label: "推测连接", description: "仅高置信局部猜测 · 虚线", color: "slate", icon: TriangleAlert },
-  { id: "places", label: "常去地点", description: "概率聚类结果", color: "blue", icon: Focus },
+  { id: "places", label: "常去地点", description: "附近重叠合并 · 点击展开", color: "blue", icon: Focus },
 ];
 
 function localInputValue(instant: string): string {
@@ -354,6 +354,7 @@ export function WorkspaceShell() {
           <MapCanvas
             data={viewData}
             selectedPaths={selectedPaths}
+            aggregatedRoutes={viewportResult?.aggregatedRoutes}
             selectedBounds={focusBounds}
             selectedStays={mapStays}
             selectedInferredConnections={mapInferredConnections}

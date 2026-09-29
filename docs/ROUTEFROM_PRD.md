@@ -2,6 +2,8 @@
 
 状态：持续维护。最后更新：2026-09-29。
 
+本轮已实现重复路线按频次分档加粗、附近常去地点按缩放合并为数字标记；原始数据及统计不变。实现边界、测试和全历史性能限制见 `docs/MAP_AGGREGATION_2026-09-29.md`，最终浏览器交互效果待确认。
+
 本文件是 RouteFrom 的产品范围、技术阶段和验收证据总入口。算法定义以
 `docs/FOOTPRINT_PROCESSING_ALGORITHM.md` 为准，前端交互定义以
 `docs/FRONTEND_EXPERIENCE_ARCHITECTURE.md` 为准，数据库结构以迁移文件为准。
