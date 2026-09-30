@@ -7,9 +7,11 @@ import Map, { Layer, Marker, NavigationControl, Popup, Source } from "react-map-
 import { maplibre } from "@/lib/maplibre-runtime";
 import { buildTrackGeoJSON } from "@/lib/map-track-data";
 import { buildPlaceGeoJSON } from "@/lib/map-place-data";
+import { placeDisplayName, placeNoteKey } from "@/lib/place-notes";
 
 import type {
   PreviewInferredConnection,
+  PreviewPlace,
   PreviewStay,
   WorkspacePreview,
 } from "@/lib/workspace-data";
@@ -24,6 +26,7 @@ interface MapCanvasProps {
   selectedStays: PreviewStay[];
   selectedInferredConnections: PreviewInferredConnection[];
   visibleLayers: Record<LayerId, boolean>;
+  placeNotes: Record<string, string>;
   selection: { kind: SelectionKind; id: string } | null;
   mapView: MapView;
   fitRequest: number;
@@ -31,6 +34,7 @@ interface MapCanvasProps {
   onMapViewChange: (view: MapView) => void;
   onViewportChange: (bounds: ViewportBounds) => void;
   onSelect: (selection: { kind: SelectionKind; id: string } | null) => void;
+  onSavePlaceNote: (place: PreviewPlace, note: string) => void;
 }
 
 // Vector tiles keep the globe crisp at a distance and the street map legible up close.
@@ -44,6 +48,7 @@ export function MapCanvas({
   selectedStays,
   selectedInferredConnections,
   visibleLayers,
+  placeNotes,
   selection,
   mapView,
   fitRequest,
@@ -51,6 +56,7 @@ export function MapCanvas({
   onMapViewChange,
   onViewportChange,
   onSelect,
+  onSavePlaceNote,
 }: MapCanvasProps) {
   const mapRef = useRef<MapRef>(null);
   const handledFitRequest = useRef(0);
@@ -58,6 +64,8 @@ export function MapCanvas({
   const lastReportedBounds = useRef<ViewportBounds | null>(null);
   const lastDiagnostic = useRef("");
   const [placeGroup, setPlaceGroup] = useState<{ position: number[]; ids: string[] } | null>(null);
+  const [editingPlace, setEditingPlace] = useState<PreviewPlace | null>(null);
+  const [draftNote, setDraftNote] = useState("");
   const denseHistory = selectedPaths.length > 500;
   const lineData = useMemo(
     () => ({ type: "FeatureCollection" as const, features: [
@@ -83,7 +91,7 @@ export function MapCanvas({
   const stayData = useMemo<FeatureCollection<Point>>(
     () => ({
       type: "FeatureCollection",
-      features: selectedStays.map((stay) => ({
+      features: (visibleLayers.stays ? selectedStays : []).map((stay) => ({
         type: "Feature",
         properties: {
           id: stay.id,
@@ -95,12 +103,38 @@ export function MapCanvas({
         geometry: { type: "Point", coordinates: stay.position },
       })),
     }),
-    [selectedStays, selection],
+    [selectedStays, selection, visibleLayers.stays],
   );
   const placeData = useMemo<FeatureCollection<Point>>(
-    () => buildPlaceGeoJSON(data.places, mapView.zoom, selection?.kind === "place" ? selection.id : undefined),
-    [data.places, selection, mapView.zoom],
+    () => visibleLayers.places
+      ? buildPlaceGeoJSON(data.places.map((place) => ({ ...place, name: placeDisplayName(data.dataset.id, place, placeNotes) })), mapView.zoom, selection?.kind === "place" ? selection.id : undefined)
+      : { type: "FeatureCollection", features: [] },
+    [data.dataset.id, data.places, placeNotes, selection, mapView.zoom, visibleLayers.places],
   );
+
+  const beginPlaceNote = useCallback((place: PreviewPlace) => {
+    setPlaceGroup(null);
+    setEditingPlace(place);
+    setDraftNote(placeNotes[placeNoteKey(data.dataset.id, place)] ?? "");
+  }, [data.dataset.id, placeNotes]);
+
+  // Hide immediately; the GeoJSON source can take another frame to rebuild large selections.
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const layerVisibility = [
+      ["track-lines", visibleLayers.track],
+      ["sparse-lines", visibleLayers.sparse],
+      ["high-speed-lines", visibleLayers.highSpeed],
+      ["stay-points", visibleLayers.stays],
+      ["inferred-lines", visibleLayers.gaps],
+      ["place-points", visibleLayers.places],
+      ["place-labels", visibleLayers.places],
+    ] as const;
+    for (const [id, visible] of layerVisibility) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visible ? "visible" : "none");
+    }
+  }, [visibleLayers]);
 
   const fitSelection = useCallback(() => {
     if (!mapRef.current || !selectedBounds) return;
@@ -200,6 +234,19 @@ export function MapCanvas({
         ...(visibleLayers.gaps ? ["inferred-lines"] : []),
       ]}
       onClick={handleClick}
+      onContextMenu={(event) => {
+        event.originalEvent.preventDefault();
+        const feature = event.features?.find((item) => item.properties?.kind === "place");
+        if (!feature || feature.geometry.type !== "Point") return;
+        const ids = JSON.parse(feature.properties!.memberIds) as string[];
+        if (ids.length > 1) {
+          setEditingPlace(null);
+          setPlaceGroup({ position: feature.geometry.coordinates, ids });
+        } else {
+          const place = data.places.find((item) => item.id === ids[0]);
+          if (place) beginPlaceNote(place);
+        }
+      }}
       onLoad={() => {
         const map = mapRef.current?.getMap();
         map?.setProjection({ type: "globe" });
@@ -252,7 +299,11 @@ export function MapCanvas({
       <NavigationControl position="bottom-right" visualizePitch />
       {visibleLayers.places && placeData.features.filter(f => f.properties!.placeCount > 1).map(feature => (
         <Marker key={feature.properties!.memberIds} longitude={feature.geometry.coordinates[0]} latitude={feature.geometry.coordinates[1]} anchor="center">
-          <button className="place-group-badge" aria-label={feature.properties!.name} title={feature.properties!.name} onClick={event => {
+          <button className="place-group-badge" aria-label={feature.properties!.name} title={feature.properties!.name} onContextMenu={event => {
+            event.preventDefault();
+            event.stopPropagation();
+            setPlaceGroup({ position: feature.geometry.coordinates, ids: JSON.parse(feature.properties!.memberIds) });
+          }} onClick={event => {
             event.stopPropagation();
             setPlaceGroup({ position: feature.geometry.coordinates, ids: JSON.parse(feature.properties!.memberIds) });
           }}>{feature.properties!.placeCount}</button>
@@ -268,9 +319,28 @@ export function MapCanvas({
           }}>放大查看</button>
           <div style={{ maxHeight: 180, overflowY: "auto" }}>
             {data.places.filter(p => placeGroup.ids.includes(p.id)).map(p => (
-              <button key={p.id} style={{ display: "block", marginTop: 8 }} onClick={() => { onSelect({ kind: "place", id: p.id }); setPlaceGroup(null); }}>{p.name} · {p.visitCount} 次</button>
+              <div className="place-group-row" key={p.id}>
+                <button type="button" onClick={() => { onSelect({ kind: "place", id: p.id }); setPlaceGroup(null); }}>{placeDisplayName(data.dataset.id, p, placeNotes)} · {p.visitCount} 次</button>
+                <button type="button" onClick={() => beginPlaceNote(p)}>备注</button>
+              </div>
             ))}
           </div>
+        </Popup>
+      )}
+      {editingPlace && visibleLayers.places && (
+        <Popup longitude={editingPlace.position[0]} latitude={editingPlace.position[1]} anchor="right" onClose={() => setEditingPlace(null)} closeOnClick={false} maxWidth="290px" className="place-note-popup">
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            onSavePlaceNote(editingPlace, draftNote);
+            setEditingPlace(null);
+          }}>
+            <span className="place-note-eyebrow">常去地点 · 我的备注</span>
+            <strong>{placeDisplayName(data.dataset.id, editingPlace, placeNotes)}</strong>
+            <label htmlFor="place-note-input">这是哪里？</label>
+            <input id="place-note-input" autoFocus maxLength={80} value={draftNote} onChange={(event) => setDraftNote(event.target.value)} placeholder="例如：家、公司、常去的咖啡店" />
+            <span className="place-note-hint">只保存在此浏览器。清空后保存可移除备注。</span>
+            <div className="place-note-actions"><button type="button" onClick={() => setEditingPlace(null)}>取消</button><button type="submit">保存备注</button></div>
+          </form>
         </Popup>
       )}
 

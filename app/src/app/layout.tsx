@@ -4,6 +4,7 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-sans-condensed/500.css";
 import "@fontsource/ibm-plex-sans-condensed/600.css";
 import "maplibre-gl/dist/maplibre-gl.css";
+import "react-day-picker/style.css";
 import "./globals.css";
 
 export const metadata: Metadata = {

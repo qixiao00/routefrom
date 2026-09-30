@@ -28,7 +28,6 @@ import {
   Route,
   Search,
   Settings2,
-  Trash2,
   TriangleAlert,
 } from "lucide-react";
 
@@ -45,10 +44,10 @@ import {
   type WorkspaceEvents,
 } from "@/lib/workspace-data";
 import { unionBounds, type ViewportBounds, type ViewportPath, type ViewportResponse } from "@/lib/workspace-viewport";
+import { placeDisplayName, placeNoteKey } from "@/lib/place-notes";
 import { type LayerId, useWorkspaceStore } from "@/lib/workspace-store";
-import type { TimeRange } from "@/lib/workspace-query";
 
-import { Timeline } from "./timeline";
+import { TimeRangePicker } from "./time-range-picker";
 
 const MapCanvas = dynamic(() => import("./map-canvas").then((module) => module.MapCanvas), {
   ssr: false,
@@ -69,17 +68,6 @@ const layerDefinitions: Array<{
   { id: "gaps", label: "推测连接", description: "仅高置信局部猜测 · 虚线", color: "slate", icon: TriangleAlert },
   { id: "places", label: "常去地点", description: "附近重叠合并 · 点击展开", color: "blue", icon: Focus },
 ];
-
-function localInputValue(instant: string): string {
-  const date = new Date(instant);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function updateLocalRange(range: TimeRange, field: keyof TimeRange, value: string): TimeRange {
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? { ...range, [field]: parsed.toISOString() } : range;
-}
 
 function formatInstant(instant: string, withTime = false): string {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -109,6 +97,7 @@ export function WorkspaceShell() {
   const [activeTool, setActiveTool] = useState("layers");
   const [fitRequest, setFitRequest] = useState(0);
   const [globeRequest, setGlobeRequest] = useState(0);
+  const [editingRange, setEditingRange] = useState<number | null>(null);
   const [visibleBounds, setVisibleBounds] = useState<ViewportBounds | null>(null);
   const [viewportState, setViewportState] = useState<{
     sourceKey: string;
@@ -123,19 +112,19 @@ export function WorkspaceShell() {
     data,
     ranges,
     visibleLayers,
+    placeNotes,
     selection,
-    cursorTime,
     mapView,
     setLoading,
     setData,
     setError,
     toggleLayer,
+    setPlaceNote,
     addRange,
     updateRange,
     removeRange,
     useSuggestedRange,
     setSelection,
-    setCursorTime,
     setMapView,
   } = useWorkspaceStore();
 
@@ -251,7 +240,7 @@ export function WorkspaceShell() {
         </button>
 
         <div className="topbar-center">
-          <button className="date-control" type="button">
+          <button className="date-control" type="button" onClick={() => setEditingRange(0)}>
             <CalendarRange size={15} />
             <span>{ranges.length > 1 ? `${ranges.length} 个不连续区间` : ranges[0] ? `${formatInstant(ranges[0].start)} — ${formatInstant(ranges[0].end)}` : "选择时间"}</span>
             <ChevronDown size={13} />
@@ -322,9 +311,9 @@ export function WorkspaceShell() {
               const movementClass = id === "highSpeed" ? "high_speed" : id === "sparse" ? "sparse" : "ordinary";
               const count = id === "stays" ? selectedStays.length : id === "gaps" ? selectedInferredConnections.length : id === "places" ? data?.places.length ?? 0 : selectedPaths.reduce((sum, path) => sum + (path.movementClass === movementClass ? path.vertices.length - 1 : 0), 0);
               return (
-                <button key={id} type="button" className={`layer-item ${visible ? "is-visible" : ""}`} onClick={() => toggleLayer(id)}>
+                <button key={id} type="button" className={`layer-item ${visible ? "is-visible" : ""}`} aria-pressed={visible} onClick={() => toggleLayer(id)}>
                   <span className={`layer-icon ${color}`}><Icon size={15} /></span>
-                  <span className="layer-name">{label}<small>{description} · {count.toLocaleString("zh-CN")}</small></span>
+                  <span className="layer-name">{label}<small>{visible ? description : "已隐藏"} · {count.toLocaleString("zh-CN")}</small></span>
                   {visible ? <Eye size={15} /> : <EyeOff size={15} />}
                 </button>
               );
@@ -332,23 +321,27 @@ export function WorkspaceShell() {
           </div>
         </section>
 
-        <section className="panel-section slices-section">
-          <div className="section-title"><span>时间切片</span><button type="button" onClick={addRange}><Plus size={14} />添加区间</button></div>
+        <section className="panel-section slices-section" id="time-slices">
+          <div className="section-title"><span>时间切片</span><button type="button" onClick={() => { addRange(); setEditingRange(0); }}><Plus size={14} />添加区间</button></div>
           <div className="range-list">
             {ranges.map((range, index) => (
-              <div className="range-editor" key={`${range.start}-${range.end}`}>
-                <span className={`slice-color ${index % 2 === 0 ? "mint" : "blue"}`} />
-                <div className="range-fields">
-                  <label><span>开始</span><input type="datetime-local" value={localInputValue(range.start)} onChange={(event) => updateRange(index, updateLocalRange(range, "start", event.target.value))} /></label>
-                  <label><span>结束</span><input type="datetime-local" value={localInputValue(range.end)} onChange={(event) => updateRange(index, updateLocalRange(range, "end", event.target.value))} /></label>
-                </div>
-                <button type="button" className="range-remove" onClick={() => removeRange(index)} disabled={ranges.length === 1} aria-label={`删除时间区间 ${index + 1}`}><Trash2 size={13} /></button>
-              </div>
+              <TimeRangePicker
+                key={`${range.start}-${range.end}`}
+                index={index}
+                range={range}
+                datasetStart={data?.dataset.startedAt}
+                datasetEnd={data?.dataset.endedAt}
+                open={editingRange === index}
+                onOpenChange={(open) => setEditingRange(open ? index : null)}
+                onApply={(next) => updateRange(index, next)}
+                onRemove={() => { removeRange(index); setEditingRange(null); }}
+                canRemove={ranges.length > 1}
+              />
             ))}
           </div>
         </section>
 
-        <button className="new-view-button" type="button" onClick={useSuggestedRange}><RefreshCw size={14} />回到最近两周</button>
+        <button className="new-view-button" type="button" onClick={useSuggestedRange}><RefreshCw size={14} />恢复建议时间范围</button>
       </motion.aside>
 
       <section className="map-stage">
@@ -361,6 +354,7 @@ export function WorkspaceShell() {
             selectedStays={mapStays}
             selectedInferredConnections={mapInferredConnections}
             visibleLayers={visibleLayers}
+            placeNotes={placeNotes}
             selection={selection}
             mapView={mapView}
             fitRequest={fitRequest}
@@ -368,6 +362,7 @@ export function WorkspaceShell() {
             onMapViewChange={setMapView}
             onViewportChange={setVisibleBounds}
             onSelect={setSelection}
+            onSavePlaceNote={(place, note) => setPlaceNote(placeNoteKey(viewData.dataset.id, place), note)}
           />
         ) : <div className="map-loading">{status === "error" ? "足迹尚未载入" : "正在读取真实足迹…"}</div>}
         <div className="map-vignette" />
@@ -402,13 +397,14 @@ export function WorkspaceShell() {
         transition={{ duration: 0.32, ease: "easeOut", delay: 0.05 }}
       >
         <div className="panel-heading compact">
-          <div><span>证据检查器</span><h2>{selectedEntity ? ("name" in selectedEntity ? selectedEntity.name : selectedEntity.id.startsWith("gap") ? "未知时间" : "静止事件") : "所选时间"}</h2></div>
+          <div><span>证据检查器</span><h2>{selectedEntity ? ("name" in selectedEntity ? placeDisplayName(viewData!.dataset.id, selectedEntity, placeNotes) : selectedEntity.id.startsWith("gap") ? "未知时间" : "静止事件") : "所选时间"}</h2></div>
           <button className="icon-button" type="button" aria-label="更多选项"><MoreHorizontal size={17} /></button>
         </div>
 
         {selectedEntity ? (
           <EntityInspector
             entity={selectedEntity}
+            placeNote={"name" in selectedEntity ? placeNotes[placeNoteKey(viewData!.dataset.id, selectedEntity)] : undefined}
             inference={"startPosition" in selectedEntity
               ? viewData?.inferredConnections?.find((item) =>
                 item.gapId === selectedEntity.id && inferredConnectionWithinSelection(item, ranges)
@@ -432,20 +428,19 @@ export function WorkspaceShell() {
               <span className="eyebrow">当前处理证据</span>
               <div className="evidence-row"><span>算法版本</span><code>{data?.processing.algorithmVersion.split("-").at(-1) ?? "—"}</code></div>
               <div className="evidence-row"><span>平滑置信度</span><strong>{data ? `${Math.round(data.processing.smoothingConfidence * 100)}%` : "—"}</strong></div>
-              <div className="evidence-row"><span>播放游标</span><strong>{cursorTime ? formatInstant(cursorTime, true) : "未设置"}</strong></div>
             </section>
           </>
         )}
       </motion.aside>
 
-        <Timeline data={viewData} ranges={ranges} cursorTime={cursorTime} selection={selection} onCursorChange={setCursorTime} onSelect={setSelection} />
     </main>
   );
 }
 
-function EntityInspector({ entity, inference }: {
+function EntityInspector({ entity, inference, placeNote }: {
   entity: SelectedEntity;
   inference?: PreviewInferredConnection;
+  placeNote?: string;
 }) {
   if ("startPosition" in entity) {
     const guess = !inference?.displayable
@@ -465,6 +460,7 @@ function EntityInspector({ entity, inference }: {
     return (
       <>
         <div className="place-preview"><div className="place-orbit"><MapPin size={19} /></div><span>{entity.position[1].toFixed(4)}° N</span><span>{entity.position[0].toFixed(4)}° E</span></div>
+        <div className="place-note-summary"><span>我的备注</span><strong>{placeNote || "右击地图上的蓝色地点添加备注"}</strong></div>
         <div className="metric-grid"><div><span>累计停留</span><strong>{formatDuration(entity.dwellSeconds)}</strong></div><div><span>访问次数</span><strong>{entity.visitCount}</strong></div><div><span>常去概率</span><strong>{Math.round(entity.frequentProbability * 100)}%</strong></div><div><span>聚类置信度</span><strong>{Math.round(entity.confidence * 100)}%</strong></div></div>
       </>
     );

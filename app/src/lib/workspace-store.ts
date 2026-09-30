@@ -24,19 +24,19 @@ interface WorkspaceState {
   viewRunId: string | null;
   ranges: TimeRange[];
   visibleLayers: Record<LayerId, boolean>;
+  placeNotes: Record<string, string>;
   selection: { kind: SelectionKind; id: string } | null;
-  cursorTime: string | null;
   mapView: MapView;
   setLoading: () => void;
   setData: (data: WorkspacePreview) => void;
   setError: (message: string) => void;
   toggleLayer: (layer: LayerId) => void;
+  setPlaceNote: (key: string, note: string) => void;
   addRange: () => void;
   updateRange: (index: number, range: TimeRange) => void;
   removeRange: (index: number) => void;
   useSuggestedRange: () => void;
   setSelection: (selection: WorkspaceState["selection"]) => void;
-  setCursorTime: (instant: string | null) => void;
   setMapView: (view: MapView) => void;
 }
 
@@ -56,9 +56,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       data: null,
       viewRunId: null,
       ranges: [],
-      visibleLayers: { track: true, sparse: true, highSpeed: false, stays: true, gaps: true, places: true },
+      visibleLayers: { track: true, sparse: true, highSpeed: false, stays: false, gaps: true, places: true },
+      placeNotes: {},
       selection: null,
-      cursorTime: null,
       mapView: initialMapView,
       setLoading: () => set({ status: "loading", error: null }),
       setData: (data) =>
@@ -70,7 +70,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             status: "ready",
             error: null,
             ranges: sameRun && state.ranges.length > 0 ? state.ranges : data.suggestedRanges,
-            cursorTime: sameRun && state.cursorTime ? state.cursorTime : data.suggestedRanges[0]?.start ?? null,
             mapView: sameRun ? state.mapView : data.suggestedMapView ?? initialMapView,
             selection: sameRun ? state.selection : null,
           };
@@ -83,6 +82,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             [layer]: !state.visibleLayers[layer],
           },
         })),
+      setPlaceNote: (key, note) => set((state) => {
+        const placeNotes = { ...state.placeNotes };
+        const trimmed = note.trim().slice(0, 80);
+        if (trimmed) placeNotes[key] = trimmed;
+        else delete placeNotes[key];
+        return { placeNotes };
+      }),
       addRange: () => {
         const state = get();
         const anchor = state.ranges[0] ?? state.data?.suggestedRanges[0];
@@ -113,14 +119,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         })),
       useSuggestedRange: () => {
         const data = get().data;
-        if (data) set({ ranges: data.suggestedRanges, cursorTime: data.suggestedRanges[0]?.start });
+        if (data) set({ ranges: data.suggestedRanges });
       },
       setSelection: (selection) => set({ selection }),
-      setCursorTime: (cursorTime) => set({ cursorTime }),
       setMapView: (mapView) => set({ mapView }),
     }),
     {
       name: "routefrom-workspace-view-v1",
+      version: 1,
+      migrate: (persisted, version) => {
+        const saved = persisted && typeof persisted === "object" ? persisted as Partial<WorkspaceState> : {};
+        return version < 1
+          ? { ...saved, visibleLayers: { ...saved.visibleLayers, stays: false } }
+          : saved;
+      },
       storage: createJSONStorage(() => localStorage),
       merge: (persisted, current) => {
         const saved = persisted && typeof persisted === "object"
@@ -133,12 +145,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             ...current.visibleLayers,
             ...(saved.visibleLayers && typeof saved.visibleLayers === "object" ? saved.visibleLayers : {}),
           },
+          placeNotes: saved.placeNotes && typeof saved.placeNotes === "object" ? saved.placeNotes : {},
         };
       },
       partialize: (state) => ({
         viewRunId: state.viewRunId,
         ranges: state.ranges,
         visibleLayers: state.visibleLayers,
+        placeNotes: state.placeNotes,
         mapView: state.mapView,
       }),
     },
