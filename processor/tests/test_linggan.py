@@ -6,7 +6,6 @@ from pathlib import Path
 
 from routefrom_pipeline.ingest.linggan import LingganCsvError, iter_linggan_csv
 
-
 HEADER = (
     "geoTime,latitude,longitude,wgsLatitude,wgsLongitude,altitude,course,"
     "horizontalAccuracy,verticalAccuracy,speed,dayTimeMills,networkType,"
@@ -61,6 +60,25 @@ class LingganCsvTests(unittest.TestCase):
 
         with self.assertRaisesRegex(LingganCsvError, "unexpected CSV columns"):
             list(iter_linggan_csv(path))
+
+    def test_rejects_nonfinite_sensor_values(self) -> None:
+        for value in ("nan", "inf", "-inf"):
+            with self.subTest(value=value):
+                path = self._write_csv(
+                    f"1682028286912,30.9,118.7,30.91,118.70,50,10,5,5,{value},"
+                    "1682006400000,0,,1\n"
+                )
+                with self.assertRaisesRegex(LingganCsvError, "speed is not finite"):
+                    list(iter_linggan_csv(path))
+
+    def test_rejects_rows_with_extra_or_missing_columns(self) -> None:
+        body = "1682028286912,30.9,118.7,30.91,118.70,50,10,5,5,1,1682006400000,0,,1"
+        for malformed in (body + ",extra\n", body.rsplit(",", 1)[0] + "\n"):
+            with (
+                self.subTest(body=malformed),
+                self.assertRaisesRegex(LingganCsvError, "number of columns"),
+            ):
+                list(iter_linggan_csv(self._write_csv(malformed)))
 
 
 if __name__ == "__main__":

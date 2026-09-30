@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import math
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -42,9 +43,12 @@ def _required_float(row: dict[str, str], field: str, row_number: int) -> float:
     if not value:
         raise LingganCsvError(f"row {row_number}: {field} is required")
     try:
-        return float(value)
+        parsed = float(value)
     except ValueError as exc:
         raise LingganCsvError(f"row {row_number}: {field} is not numeric") from exc
+    if not math.isfinite(parsed):
+        raise LingganCsvError(f"row {row_number}: {field} is not finite")
+    return parsed
 
 
 def _optional_float(row: dict[str, str], field: str, row_number: int) -> float | None:
@@ -52,9 +56,12 @@ def _optional_float(row: dict[str, str], field: str, row_number: int) -> float |
     if not value:
         return None
     try:
-        return float(value)
+        parsed = float(value)
     except ValueError as exc:
         raise LingganCsvError(f"row {row_number}: {field} is not numeric") from exc
+    if not math.isfinite(parsed):
+        raise LingganCsvError(f"row {row_number}: {field} is not finite")
+    return parsed
 
 
 def _optional_int(row: dict[str, str], field: str, row_number: int) -> int | None:
@@ -178,6 +185,8 @@ def iter_linggan_csv(path: str | Path) -> Iterator[NormalizedLocationPoint]:
                 f"unexpected CSV columns: expected {EXPECTED_COLUMNS!r}, got {tuple(reader.fieldnames)!r}"
             )
         for source_row_number, row in enumerate(reader, start=2):
+            if None in row or any(value is None for value in row.values()):
+                raise LingganCsvError(f"row {source_row_number}: unexpected number of columns")
             yield _parse_row(row, source_row_number)
 
 
