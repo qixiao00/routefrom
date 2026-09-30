@@ -55,6 +55,7 @@ CREATE TABLE app.library_observations (
   geo_time_epoch_ms bigint NOT NULL,
   recorded_at timestamptz NOT NULL,
   position geometry(Point, 4326) NOT NULL,
+  payload jsonb NOT NULL CHECK (jsonb_typeof(payload) = 'object'),
   created_at timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (source_id, library_id)
     REFERENCES app.library_sources(id, library_id) ON DELETE RESTRICT,
