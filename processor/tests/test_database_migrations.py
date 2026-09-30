@@ -18,7 +18,7 @@ class DatabaseMigrationTests(unittest.TestCase):
     def test_migration_numbers_are_contiguous(self) -> None:
         numbers = [int(path.name.split("_", 1)[0]) for path in self.migrations]
 
-        self.assertEqual(numbers, list(range(1, 13)))
+        self.assertEqual(numbers, list(range(1, 14)))
 
     def test_every_migration_parses_as_postgresql(self) -> None:
         for path in self.migrations:
