@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
+import { createInterface } from "node:readline";
 import test from "node:test";
 import { Pool } from "pg";
 
@@ -14,7 +15,8 @@ const header = "geoTime,latitude,longitude,wgsLatitude,wgsLongitude,altitude,cou
 const csv = (entries) => header + entries.map(([time, longitude]) => `${time},30.9,${longitude},30.9,${longitude},50,-1,5,-1,-1,1682006400000,0,,1\n`).join("");
 
 test("website library: private multipart imports, dedup, isolation, conflicts, withdrawal and restore", {
-  skip: process.env.ROUTEFROM_RUN_DATABASE_TESTS !== "true", timeout: 300_000,
+  skip: process.env.ROUTEFROM_RUN_DATABASE_TESTS !== "true",
+  timeout: process.env.ROUTEFROM_BROWSER_QA === "true" ? 900_000 : 300_000,
 }, async () => {
   const database = process.env.ROUTEFROM_TEST_DATABASE || "routefrom_integration";
   assert.match(database, /^routefrom_integration/);
@@ -28,6 +30,7 @@ test("website library: private multipart imports, dedup, isolation, conflicts, w
   const env = { ...process.env, DATABASE_URL: webUrl.toString(), DATABASE_URL_DIRECT: url.toString(),
     BETTER_AUTH_URL: baseURL, FOOTPRINT_DATA_DIR: root };
   const identities = [];
+  const browserAccounts = [];
   let server;
   // Capture output only for failure diagnostics; never print environment variables or URLs containing credentials.
   let logs = "";
@@ -43,9 +46,9 @@ test("website library: private multipart imports, dedup, isolation, conflicts, w
     assert.match(response.headers.get("cache-control"), /no-store/);
     return response.json();
   };
-  const upload = async (cookie, contents) => {
+  const upload = async (cookie, contents, name = "test.csv") => {
     const form = new FormData();
-    form.append("file", new File([contents], "test.csv", { type: "text/csv" }));
+    form.append("file", new File([contents], name, { type: "text/csv" }));
     return request("/api/library/imports", cookie, { method: "POST", body: form });
   };
   const work = async () => {
@@ -68,9 +71,11 @@ test("website library: private multipart imports, dedup, isolation, conflicts, w
     assert.equal((await request("/api/library")).status, 401);
     const signup = async () => {
       const email = `${randomUUID()}@example.invalid`;
+      const password = randomUUID();
       identities.push(email);
-      const response = await action("/api/auth/sign-up/email", null, { email, name: "Library HTTP test", password: randomUUID() });
+      const response = await action("/api/auth/sign-up/email", null, { email, name: "Library HTTP test", password });
       assert.equal(response.status, 200);
+      browserAccounts.push({ email, password });
       return response.headers.getSetCookie().map(value => value.split(";", 1)[0]).join("; ");
     };
     const a = await signup();
@@ -89,6 +94,9 @@ test("website library: private multipart imports, dedup, isolation, conflicts, w
     assert.equal(state.jobs[0].status, "succeeded", state.jobs[0].error_message);
     assert.equal(state.jobs[0].metrics.point_count, 2);
     assert.equal(state.files.length, 1);
+    assert.equal(state.user.name, "Library HTTP test");
+    assert.equal(Number(state.published.point_count), 2);
+    assert.equal(state.files[0].dataset_id, state.jobs[0].dataset_id);
     response = await upload(a, firstCsv);
     assert.equal(response.status, 200);
     assert.equal((await response.json()).reused, true);
@@ -145,6 +153,21 @@ test("website library: private multipart imports, dedup, isolation, conflicts, w
     assert.equal((await action(`/api/library/jobs/${failedJob}`, a, { action: "retry" })).status, 202);
     await work();
     assert.equal((await library(a)).jobs[0].status, "failed");
+    if (process.env.ROUTEFROM_BROWSER_QA === "true") {
+      // Optional browser review uses only this test's disposable account/data.
+      // Type `work` after a UI action, or `finish` to close and clean the fixture.
+      assert.equal((await upload(a, csv([[base + 10000, "118.7003"]]),
+        "灵敢足迹-重复时刻待选择-用于检查很长原始文件名在小屏幕上的显示.csv")).status, 202);
+      await work();
+      console.log("Disposable browser QA:", JSON.stringify({ url: `${baseURL}/login?next=/library`, ...browserAccounts[0] }));
+      const input = createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        for await (const line of input) {
+          if (line.trim() === "finish") break;
+          if (line.trim() === "work") { await work(); console.log("QA worker completed"); }
+        }
+      } finally { input.close(); }
+    }
   } catch (error) {
     console.error(logs);
     console.error("HTTP integration assertion:", error);

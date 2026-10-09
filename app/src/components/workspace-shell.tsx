@@ -269,7 +269,7 @@ export function WorkspaceShell() {
           <button
             key={id}
             className={activeTool === id ? "active" : ""}
-            onClick={() => setActiveTool(id)}
+            onClick={() => id === "data" ? window.location.assign("/library") : setActiveTool(id)}
             aria-label={label}
             title={label}
             type="button"

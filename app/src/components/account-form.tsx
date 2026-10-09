@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { ArrowRight, LoaderCircle, Route } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { loginReturnPath } from "@/lib/library-client";
 
 export function AccountForm() {
   const [register, setRegister] = useState(false);
@@ -29,7 +30,7 @@ export function AccountForm() {
             : "登录失败，请检查邮箱和密码。"
         );
       } else {
-        window.location.assign("/");
+        window.location.assign(loginReturnPath(new URLSearchParams(window.location.search).get("next")));
       }
     } catch {
       setError("暂时无法连接，请稍后再试。");

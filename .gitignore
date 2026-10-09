@@ -3,6 +3,7 @@
 /data/working/*
 /data/generated/*
 /data/reports/*
+/artifacts/
 
 # Keep directory documentation/placeholders
 !/data/raw/.gitkeep
