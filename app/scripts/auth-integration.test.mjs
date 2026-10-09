@@ -8,7 +8,7 @@ import { createAuthOptions } from "../src/server/auth-config.ts";
 test("real Postgres authentication: schema, signup, session, password rejection and logout", {
   skip: process.env.ROUTEFROM_RUN_DATABASE_TESTS !== "true",
 }, async () => {
-  const url = new URL(process.env.DATABASE_URL_DIRECT);
+  const url = new URL(process.env.DATABASE_URL);
   const database = process.env.ROUTEFROM_TEST_DATABASE || "routefrom_integration";
   assert.match(database, /^routefrom_integration/);
   url.pathname = `/${database}`;

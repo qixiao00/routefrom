@@ -107,6 +107,54 @@ back, leaving the previous active run untouched.
 
 Use `DATABASE_URL_DIRECT` for this long transaction. The future Next.js query
 API uses pooled `DATABASE_URL`. Neither connection string belongs in browser
-code or a `NEXT_PUBLIC_` variable. PostgreSQL/PostGIS integration still needs
-to be exercised against a real migrated database before this path is considered
-production-verified.
+code or a `NEXT_PUBLIC_` variable. The library worker now exercises this writer
+against a real isolated PostGIS database, including activation, overlap,
+conflict decisions, failures, withdrawal and lease/revision fencing. Full-size
+private CSV persistence/performance and the website map read path still need
+their own end-to-end verification.
+
+## Website library queue
+
+The Next.js library API stores immutable CSVs privately and queues durable jobs
+in `app.library_jobs`. Run the worker as a separate long-lived process, not
+inside an HTTP request. Both services must use the same `FOOTPRINT_DATA_DIR`.
+The website uses pooled `DATABASE_URL`; this worker uses `DATABASE_URL_DIRECT`.
+
+With environment variables already injected by the host:
+
+```powershell
+python -m routefrom_pipeline.library_worker --data-dir "C:\private\routefrom"
+```
+
+For local development, the repository's Node runtime can inject the existing
+gitignored app environment into Python without printing credentials. Run from
+`processor/`:
+
+```powershell
+node --env-file=../app/.env.local --input-type=module -e 'import { spawn } from "node:child_process"; const child = spawn("../.venv/Scripts/python.exe", ["-m", "routefrom_pipeline.library_worker"], {stdio: "inherit"}); child.on("exit", code => process.exit(code ?? 1));'
+```
+
+`--once` handles at most one eligible job; `--library-id <uuid>` limits the queue
+to a single library. Jobs for the same library serialize. A 15-minute renewable
+lease fences stale workers. Source attachment and publication also lock the
+library; a withdrawn/cancelled importer cannot re-attach it in the background.
+Only a complete result for the current library revision replaces the active
+snapshot. Failures and unresolved timestamp conflicts preserve the old map.
+
+Validated conflict choices remain in published snapshot metadata even when
+withdrawal makes a conflict temporarily disappear, so restoration can reuse a
+still-valid choice. Only current conflicts and eligible candidates are passed
+to the processing algorithm. Original files and provenance are never deleted
+by withdrawal. An empty library publishes an explicit empty snapshot.
+
+HTTP integration verification runs a production Next.js test server on port
+3100 and the real worker using only synthetic CSVs and an isolated database:
+
+```powershell
+# Build app first. From app/, with ROUTEFROM_RUN_DATABASE_TESTS=true injected:
+node --env-file=.env.local --test scripts/library-http-integration.test.mjs
+```
+
+This test refuses a database name outside `routefrom_integration*`. It cleans
+only its synthetic users and temporary private directory. The production
+database and the user's private footprint CSV are not test fixtures.

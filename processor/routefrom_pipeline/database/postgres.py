@@ -1159,7 +1159,7 @@ def _persist_trajectory_representation(
           path,point_count,distance_meters,has_gap_before,has_gap_after
         ) VALUES (
           %s,%s,%s,%s,tstzrange(%s,%s,'[)'),
-          CASE WHEN %s IS NULL THEN NULL ELSE ST_GeomFromText(%s,4326) END,
+          CASE WHEN %s::text IS NULL THEN NULL ELSE ST_GeomFromText(%s,4326) END,
           %s,%s,%s,%s
         )
         """,
@@ -1218,7 +1218,7 @@ def _persist_trajectory_representation(
           has_leading_overlap,path,min_importance_meters,max_importance_meters
         ) VALUES (
           %s,%s,%s,%s,tstzrange(%s,%s,'[)'),%s,%s,%s,%s,%s,
-          CASE WHEN %s IS NULL THEN NULL ELSE ST_GeomFromText(%s,4326) END,%s,%s
+          CASE WHEN %s::text IS NULL THEN NULL ELSE ST_GeomFromText(%s,4326) END,%s,%s
         )
         """,
         [row[:12] + (row[11],) + row[12:] for row in chunk_rows],
