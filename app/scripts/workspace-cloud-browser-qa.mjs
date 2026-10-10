@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect } from "@playwright/test";
 
 export async function verifyCloudViewsBrowser({ browser, page, context, login, account, mintPixels }) {
-  const sync = page.locator(".map-view-sync");
+  const sync = page.getByRole("button", { name: "地图视图与同步" });
   const track = page.getByRole("button", { name: /^观测轨迹/ });
   const openViews = async target => { await target.getByRole("button", { name: "地图视图与同步", exact: true }).click(); };
   const checkpoint = label => { if (process.env.ROUTEFROM_HTTP_VERBOSE === "true") console.log(`Cloud browser checkpoint: ${label}`); };
@@ -43,15 +43,15 @@ export async function verifyCloudViewsBrowser({ browser, page, context, login, a
   second.on("pageerror", error => errors.push(error.message));
   try {
     await login(account, second);
-    await expect(second.locator(".map-view-sync")).toContainText("视图已保存到账号", { timeout: 30_000 });
+    await expect(second.getByRole("button", { name: "地图视图与同步" })).toContainText("视图已保存到账号", { timeout: 30_000 });
     await expect(second.getByRole("button", { name: /^观测轨迹/ })).toHaveAttribute("aria-pressed", "false");
     await expect(second.locator(".inspector")).toBeHidden();
     const state = await second.evaluate(() => JSON.parse(localStorage.getItem("routefrom-workspace-view-v1")).state);
-    assert.ok(state.mapView.zoom > 12, "cloud restores camera in a new device profile");
+    assert.ok(state.mapView.zoom > 12, `cloud restores camera in a new device profile (actual zoom ${state.mapView.zoom})`);
     await openViews(second);
     await second.getByRole("button", { name: /^合成数据 · 跨设备通勤/ }).click();
     await expect(second.getByRole("button", { name: /^观测轨迹/ })).toHaveAttribute("aria-pressed", "true");
-    await expect(second.locator(".map-view-sync")).toContainText("视图已保存到账号", { timeout: 30_000 });
+    await expect(second.getByRole("button", { name: "地图视图与同步" })).toContainText("视图已保存到账号", { timeout: 30_000 });
     await expect.poll(async () => mintPixels(await second.locator(".maplibregl-canvas").screenshot()), { timeout: 20_000 }).toBeGreaterThan(20);
     checkpoint("new browser restored camera, layer, panels and named view");
     assert.deepEqual(errors, []);

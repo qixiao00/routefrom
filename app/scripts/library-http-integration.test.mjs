@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { setDefaultResultOrder } from "node:dns";
+import { lookup } from "node:dns/promises";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +13,7 @@ import test from "node:test";
 import { Pool } from "pg";
 import { cleanupTestAccounts } from "./library-test-cleanup.mjs";
 import { verifyMapViewsHttp } from "./workspace-views-http-qa.mjs";
+import { verifyPlaceNotesHttp } from "./place-notes-http-qa.mjs";
 
 const execute = promisify(execFile);
 const header = "geoTime,latitude,longitude,wgsLatitude,wgsLongitude,altitude,course,horizontalAccuracy,verticalAccuracy,speed,dayTimeMills,networkType,networkName,locationType\n";
@@ -24,6 +27,8 @@ test(process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
 }, async () => {
   const database = process.env.ROUTEFROM_TEST_DATABASE || "routefrom_integration";
   assert.match(database, /^routefrom_integration/);
+  const preferIpv4 = process.env.ROUTEFROM_TEST_IPV4 === "true";
+  if (preferIpv4) setDefaultResultOrder("ipv4first");
   const url = new URL(process.env.DATABASE_URL_DIRECT);
   url.pathname = `/${database}`;
   const webUrl = new URL(process.env.DATABASE_URL);
@@ -33,6 +38,12 @@ test(process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
   const baseURL = "http://127.0.0.1:3100";
   const env = { ...process.env, DATABASE_URL: webUrl.toString(), DATABASE_URL_DIRECT: url.toString(),
     BETTER_AUTH_URL: baseURL, FOOTPRINT_DATA_DIR: root };
+  if (preferIpv4) {
+    env.NODE_OPTIONS = `${env.NODE_OPTIONS || ""} --dns-result-order=ipv4first`.trim();
+    // Diagnostic option for a local IPv6 path with intermittent TLS stalls.
+    // libpq keeps the original hostname for SNI/certificate verification.
+    env.PGHOSTADDR = (await lookup(url.hostname, { family: 4 })).address;
+  }
   const identities = [];
   const browserAccounts = [];
   let targetLibraryId;
@@ -73,7 +84,7 @@ test(process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
   };
   try {
     const version = await pool.query("SELECT max(filename) AS filename FROM routefrom_meta.schema_migrations");
-    assert.equal(version.rows[0].filename, "0017_library_map_views.sql", "apply current migrations to the test database first");
+    assert.equal(version.rows[0].filename, "0019_library_place_notes.sql", "apply current migrations to the test database first");
     checkpoint("database ready");
     server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--port", "3100"],
       { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -289,6 +300,9 @@ test(process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
       await verifyWorkspaceBrowser({ baseURL, accounts: browserAccounts, richEntries: richEntries.length });
       checkpoint("browser map and account switch passed");
     }
+    await verifyPlaceNotesHttp({ request, a, b, map: richMap, subjectA: empty.account.subject,
+      subjectB: secondBootstrap.account.subject, pool, work, upload, csv, base });
+    checkpoint("place notes: exact rebinding, versions, legacy upgrade, withdrawal/restore and collisions passed");
     if (process.env.ROUTEFROM_BROWSER_QA === "true") {
       // Optional browser review uses only this test's disposable account/data.
       // Type `work` after a UI action, or `finish` to close and clean the fixture.

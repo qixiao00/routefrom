@@ -15,3 +15,9 @@ test("a local note replaces only the matching inferred place label", () => {
   assert.equal(placeDisplayName("dataset-b", place, notes), place.name);
   assert.equal(placeDisplayName("dataset-a", { ...place, firstVisitedAt: "2026-03-01T00:00:00Z" }, notes), place.name);
 });
+
+test("cloud note deletion cannot resurrect a browser-only legacy name", () => {
+  const notes = { [placeNoteKey("dataset-a", place)]: "旧名字" };
+  assert.equal(placeDisplayName("dataset-a", { ...place, note: null }, notes), place.name);
+  assert.equal(placeDisplayName("dataset-a", { ...place, note: { id: "note", revision: 1, label: "账号名字" } }, notes), "账号名字");
+});

@@ -9,6 +9,8 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from routefrom_pipeline.database.library import withdraw_library_file
+from routefrom_pipeline.database.library import load_library_snapshot
+from routefrom_pipeline.database.lineage import persist_library_lineage
 from routefrom_pipeline.ingest.export_csv import write_linggan_csv
 from routefrom_pipeline.ingest.library import observation_fingerprint
 from routefrom_pipeline.ingest.linggan import EXPECTED_COLUMNS, iter_linggan_csv
@@ -121,6 +123,67 @@ class WorkerPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(self.job(invalid)[0], "failed")
         self.assertEqual(old, self.active())
         self.assertFalse(run_once(self.connection, self.root, library_id=self.library))
+
+    def test_exact_lineage_and_mismatched_input_rolls_back(self):
+        base = 1682028286912
+        first = self.enqueue([(base + i * 10000, str(118.7 + i * 0.0001)) for i in range(5)])
+        self.process()
+        self.assertEqual(self.job(first)[0], "succeeded", self.job(first)[2])
+        run, dataset, imported = self.connection.execute(
+            """SELECT snapshot.processing_run_id, snapshot.dataset_id, run.dataset_import_id
+               FROM app.library_snapshots AS snapshot JOIN app.processing_runs AS run
+                 ON run.id = snapshot.processing_run_id WHERE snapshot.id = %s""", (self.active(),),
+        ).fetchone()
+        mapped = self.connection.execute(
+            """SELECT point.source_row_number, observation.fingerprint, origin.library_file_id
+               FROM app.library_run_observations AS mapping
+               JOIN app.location_points AS point ON point.id = mapping.point_id
+               JOIN app.library_observations AS observation ON observation.id = mapping.observation_id
+               JOIN app.library_observation_origins AS origin ON origin.observation_id = observation.id
+               WHERE mapping.processing_run_id = %s ORDER BY point.source_row_number""", (run,),
+        ).fetchall()
+        _, snapshot = load_library_snapshot(self.connection, user_id=self.user, library_id=self.library)
+        self.assertEqual([row[0] for row in mapped], list(range(2, 7)))
+        self.assertEqual([row[1] for row in mapped], [item.fingerprint for item in snapshot.processing_observations()])
+        # The savepoint removes a manifest, then attempts an ordinal mapping with
+        # reversed source evidence. No partial manifest may survive the failure.
+        self.connection.execute("SAVEPOINT lineage_test")
+        self.connection.execute("DELETE FROM app.library_processing_inputs WHERE processing_run_id = %s", (run,))
+        with self.assertRaisesRegex(ValueError, "lineage is incomplete"):
+            persist_library_lineage(self.connection, library_id=self.library, user_id=self.user,
+                                    processing_run_id=run, dataset_id=dataset, dataset_import_id=imported,
+                                    observations=tuple(reversed(snapshot.processing_observations())))
+        self.assertEqual(self.connection.execute(
+            "SELECT count(*) FROM app.library_processing_inputs WHERE processing_run_id = %s", (run,),
+        ).fetchone()[0], 0)
+        self.connection.execute("ROLLBACK TO SAVEPOINT lineage_test")
+        self.assertEqual(self.connection.execute(
+            "SELECT count(*) FROM app.library_run_observations WHERE processing_run_id = %s", (run,),
+        ).fetchone()[0], 5)
+
+    def test_legacy_parser_geometry_reuse_keeps_exact_observation_identity(self):
+        base = 1682028286912
+        with patch("routefrom_pipeline.database.imports.PARSER_VERSION", "linggan-csv-v1"), patch(
+            "routefrom_pipeline.database.imports._point_wkt",
+            lambda point: f"POINT({point.wgs_longitude:.12g} {point.wgs_latitude:.12g})",
+        ):
+            first = self.enqueue([(base, "118.7000000000001"), (base + 10000, "118.7000000000002")])
+            self.process()
+        self.assertEqual(self.job(first)[0], "succeeded", self.job(first)[2])
+        old_run = self.connection.execute("SELECT processing_run_id FROM app.library_snapshots WHERE id = %s", (self.active(),)).fetchone()[0]
+        job = self.connection.execute(
+            "INSERT INTO app.library_jobs (library_id, user_id, kind) VALUES (%s, %s, 'reprocess') RETURNING id",
+            (self.library, self.user),
+        ).fetchone()[0]
+        self.process()
+        self.assertEqual(self.job(job)[0], "succeeded", self.job(job)[2])
+        new_run = self.connection.execute("SELECT processing_run_id FROM app.library_snapshots WHERE id = %s", (self.active(),)).fetchone()[0]
+        self.assertNotEqual(old_run, new_run)
+        identities = self.connection.execute(
+            "SELECT processing_run_id, array_agg(observation_id ORDER BY point_id) FROM app.library_run_observations WHERE processing_run_id IN (%s, %s) GROUP BY processing_run_id",
+            (old_run, new_run),
+        ).fetchall()
+        self.assertEqual(identities[0][1], identities[1][1])
 
     def test_conflict_pauses_and_resolves_then_decision_survives_new_import(self):
         base = 1682028286912

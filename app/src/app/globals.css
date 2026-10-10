@@ -262,6 +262,15 @@ kbd { display: flex; align-items: center; gap: 2px; padding: 2px 5px; border: 1p
 .place-note-popup label { margin-top: 4px; color: #aab8b4; font-size: 10px; }
 .place-note-popup input { width: 100%; height: 34px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 7px; background: #0a1115; color: var(--text); font-size: 11px; }
 .place-note-hint { color: var(--faint); font-size: 9px; line-height: 1.45; }
+.place-notes-panel .map-views-heading { color: var(--blue); }
+.place-notes-panel .map-views-status { margin-top: 12px; }
+.place-notes-panel .map-view-save-form > input, .place-notes-panel select { width: 100%; min-height: 34px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface-raised); color: var(--text); font-size: 11px; }
+.legacy-place-notes { margin-top: 16px; color: var(--muted); font-size: 11px; }
+.legacy-place-notes summary { cursor: pointer; color: var(--amber); }
+.legacy-place-notes p { line-height: 1.7; }
+.legacy-place-notes div { display: grid; gap: 4px; margin: 8px 0; }
+.legacy-place-notes code { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font: 9px "IBM Plex Mono", monospace; }
+.place-notes-library-link { display: block; margin-top: 16px; color: var(--blue); font-size: 11px; }
 .place-note-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 4px; }
 .place-note-actions button { padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; color: var(--muted); font-size: 10px; cursor: pointer; }
 .place-note-actions button[type="submit"] { border-color: rgba(114,167,255,.4); background: rgba(114,167,255,.12); color: #a8c7ff; }

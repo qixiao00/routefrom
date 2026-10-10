@@ -70,6 +70,7 @@ export interface PreviewModeLeg {
 }
 
 export interface PreviewPlace {
+  note?: { id: string; label: string; revision: number } | null;
   id: string;
   name: string;
   position: [number, number];

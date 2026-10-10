@@ -9,6 +9,8 @@ from typing import Any
 from uuid import UUID
 
 from routefrom_pipeline.database import import_linggan_csv
+from routefrom_pipeline.database.imports import _point_wkt
+from routefrom_pipeline.ingest.linggan import _parse_row
 
 
 HEADER = (
@@ -67,6 +69,14 @@ class FakeConnection:
 
 class DatabaseImportTests(unittest.TestCase):
     dataset_id = UUID("ab96de99-f2d3-402b-ad2b-c756e05d4d62")
+
+    def test_wgs_geometry_preserves_all_source_float_digits(self):
+        point = _parse_row({"geoTime": "1682028286912", "dayTimeMills": "1682006400000",
+                            "latitude": "30.9", "longitude": "118.7",
+                            "wgsLatitude": "30.9000000000001", "wgsLongitude": "118.7000000000001"}, 2)
+        values = _point_wkt(point)[6:-1].split()
+        self.assertEqual(float(values[0]), point.wgs_longitude)
+        self.assertEqual(float(values[1]), point.wgs_latitude)
 
     def _write_csv(self) -> Path:
         directory = tempfile.TemporaryDirectory()

@@ -53,6 +53,8 @@ import { type LayerId, useWorkspaceStore } from "@/lib/workspace-store";
 
 import { TimeRangePicker } from "./time-range-picker";
 import { MapViewsControl } from "./map-views-control";
+import { PlaceNotesControl } from "./place-notes-control";
+import { usePlaceNotes } from "./use-place-notes";
 
 const MapCanvas = dynamic(() => import("./map-canvas").then((module) => module.MapCanvas), {
   ssr: false,
@@ -220,7 +222,11 @@ export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
     return bounds;
   }, [viewportResult, visibleLayers.track, visibleLayers.sparse, visibleLayers.highSpeed]);
   const currentEvents = eventState?.sourceKey === sourceKey ? eventState.events : null;
-  const viewData = useMemo(() => data ? { ...data, ...currentEvents } : null, [data, currentEvents]);
+  const cloudNotes = usePlaceNotes(accountSubject, data?.library?.state === "ready" ? data.processing.runId : null, owned && status === "ready");
+  const viewData = useMemo(() => data ? { ...data, ...currentEvents, places: data.places.map(place => {
+    const note = cloudNotes.collection?.notes.find(note => note.status === "bound" && note.placeIds[0] === place.id);
+    return { ...place, note: note ? { id: note.id, label: note.label, revision: note.revision } : null };
+  }) } : null, [data, currentEvents, cloudNotes.collection]);
   const selectedPaths = viewportResult?.paths ?? EMPTY_PATHS;
   const selectedStays = useMemo(
     () => viewData?.stays.filter((stay) => overlapsSelection(stay.start, stay.end, ranges)) ?? [],
@@ -288,6 +294,7 @@ export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
 
         <div className="topbar-actions">
           <MapViewsControl key={accountSubject} accountSubject={accountSubject} ready={owned && status === "ready"} />
+          <PlaceNotesControl key={`notes-${accountSubject}`} subject={accountSubject} ready={owned && status === "ready"} places={viewData?.places ?? []} notes={cloudNotes} legacyNotes={placeNotes} />
           <button className="icon-button inspector-toggle" type="button" aria-label={panels.inspector ? "隐藏检查器" : "显示检查器"}
             onClick={() => setPanels({ ...panels, inspector: !panels.inspector })}>
             {panels.inspector ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
@@ -401,7 +408,10 @@ export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
             onMapViewChange={setMapView}
             onViewportChange={setVisibleBounds}
             onSelect={setSelection}
-            onSavePlaceNote={(place, note) => setPlaceNote(placeNoteKey(viewData.dataset.id, place), note)}
+            onSavePlaceNote={async (place, note) => {
+              await cloudNotes.saveForPlace(place, note);
+              setPlaceNote(placeNoteKey(viewData.dataset.id, place), "");
+            }}
           />
         ) : <div className="map-loading">{status === "error" ? "足迹尚未载入" : "正在读取真实足迹…"}</div>}
         <div className="map-vignette" />
@@ -448,7 +458,7 @@ export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
         {selectedEntity ? (
           <EntityInspector
             entity={selectedEntity}
-            placeNote={"name" in selectedEntity ? placeNotes[placeNoteKey(viewData!.dataset.id, selectedEntity)] : undefined}
+            placeNote={"name" in selectedEntity ? selectedEntity.note?.label : undefined}
             inference={"startPosition" in selectedEntity
               ? viewData?.inferredConnections?.find((item) =>
                 item.gapId === selectedEntity.id && inferredConnectionWithinSelection(item, ranges)

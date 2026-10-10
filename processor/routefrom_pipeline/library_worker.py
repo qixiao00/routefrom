@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from routefrom_pipeline.database.imports import import_linggan_csv
 from routefrom_pipeline.database.library import attach_library_import, load_library_snapshot
+from routefrom_pipeline.database.lineage import persist_library_lineage
 from routefrom_pipeline.database.postgres import persist_processed_trace
 from routefrom_pipeline.ingest.export_csv import write_linggan_csv
 from routefrom_pipeline.pipeline import process_trace
@@ -208,6 +209,11 @@ def process_job(connection: psycopg.Connection, job, root: Path) -> None:
                         "content_sha256": snapshot.content_sha256, "decisions": decisions},
         )
         run_id = result.processing_run_id
+        persist_library_lineage(
+            connection, library_id=library_id, user_id=user_id, processing_run_id=run_id,
+            dataset_id=merged_dataset, dataset_import_id=canonical.dataset_import_id,
+            observations=snapshot.processing_observations(decisions),
+        )
     progress(connection, job, "publish", 95)
     with connection.transaction():
         current = connection.execute(

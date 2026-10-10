@@ -95,6 +95,15 @@ class LibrarySnapshot:
         remain in this snapshot. Never silently omit an ambiguous timestamp or
         choose whichever file happened to be uploaded last.
         """
+        return tuple(
+            replace(observation.point, source_row_number=index)
+            for index, observation in enumerate(self.processing_observations(resolutions), start=2)
+        )
+
+    def processing_observations(
+        self, resolutions: Mapping[int, str] | None = None,
+    ) -> tuple[LibraryObservation, ...]:
+        """The exact selected provenance in the same order as generated CSV rows."""
         decisions = resolutions or {}
         required = {conflict.epoch_ms: conflict for conflict in self.conflicts}
         if set(decisions) != set(required):
@@ -102,14 +111,10 @@ class LibrarySnapshot:
         for epoch_ms, fingerprint in decisions.items():
             if fingerprint not in required[epoch_ms].fingerprints:
                 raise ValueError("resolution must reference an observation at that timestamp")
-        selected = (
+        return tuple(
             observation for observation in self.observations
             if observation.point.geo_time_epoch_ms not in required
             or decisions[observation.point.geo_time_epoch_ms] == observation.fingerprint
-        )
-        return tuple(
-            replace(observation.point, source_row_number=index)
-            for index, observation in enumerate(selected, start=2)
         )
 
 

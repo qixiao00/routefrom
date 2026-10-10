@@ -35,7 +35,7 @@ interface MapCanvasProps {
   onMapViewChange: (view: MapView) => void;
   onViewportChange: (bounds: ViewportBounds) => void;
   onSelect: (selection: { kind: SelectionKind; id: string } | null) => void;
-  onSavePlaceNote: (place: PreviewPlace, note: string) => void;
+  onSavePlaceNote: (place: PreviewPlace, note: string) => Promise<void>;
 }
 
 // Vector tiles keep the globe crisp at a distance and the street map legible up close.
@@ -67,6 +67,9 @@ export function MapCanvas({
   const [placeGroup, setPlaceGroup] = useState<{ position: number[]; ids: string[] } | null>(null);
   const [editingPlace, setEditingPlace] = useState<PreviewPlace | null>(null);
   const [draftNote, setDraftNote] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const noteWrite = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   // initialViewState is intentionally uncontrolled while dragging. External
   // restores must still move the real map; compare to avoid feedback loops and
@@ -126,9 +129,11 @@ export function MapCanvas({
   );
 
   const beginPlaceNote = useCallback((place: PreviewPlace) => {
+    if (noteWrite.current) return;
     setPlaceGroup(null);
     setEditingPlace(place);
-    setDraftNote(placeNotes[placeNoteKey(data.dataset.id, place)] ?? "");
+    setDraftNote(place.note?.label ?? placeNotes[placeNoteKey(data.dataset.id, place)] ?? "");
+    setNoteError(null);
   }, [data.dataset.id, placeNotes]);
 
   // Hide immediately; the GeoJSON source can take another frame to rebuild large selections.
@@ -299,6 +304,9 @@ export function MapCanvas({
       }}
       onResize={reportViewport}
       onMoveEnd={(event) => {
+        // Initial projection/style setup can emit moveend before the external
+        // cloud camera has been applied. Do not overwrite it with initialViewState.
+        if (!mapReady) { reportViewport(); return; }
         onMapViewChange({
           longitude: event.viewState.longitude,
           latitude: event.viewState.latitude,
@@ -342,18 +350,22 @@ export function MapCanvas({
         </Popup>
       )}
       {editingPlace && visibleLayers.places && (
-        <Popup longitude={editingPlace.position[0]} latitude={editingPlace.position[1]} anchor="right" onClose={() => setEditingPlace(null)} closeOnClick={false} maxWidth="290px" className="place-note-popup">
-          <form onSubmit={(event) => {
+        <Popup longitude={editingPlace.position[0]} latitude={editingPlace.position[1]} anchor="right" onClose={() => { if (!noteWrite.current) setEditingPlace(null); }} closeOnClick={false} maxWidth="290px" className="place-note-popup">
+          <form onSubmit={async (event) => {
             event.preventDefault();
-            onSavePlaceNote(editingPlace, draftNote);
-            setEditingPlace(null);
+            if (noteWrite.current) return;
+            noteWrite.current = true; setNoteSaving(true); setNoteError(null);
+            try { await onSavePlaceNote(editingPlace, draftNote); setEditingPlace(null); }
+            catch (cause) { setNoteError(cause instanceof Error ? cause.message : "备注未保存，请重试。"); }
+            finally { noteWrite.current = false; setNoteSaving(false); }
           }}>
             <span className="place-note-eyebrow">常去地点 · 我的备注</span>
             <strong>{placeDisplayName(data.dataset.id, editingPlace, placeNotes)}</strong>
             <label htmlFor="place-note-input">这是哪里？</label>
-            <input id="place-note-input" autoFocus maxLength={80} value={draftNote} onChange={(event) => setDraftNote(event.target.value)} placeholder="例如：家、公司、常去的咖啡店" />
-            <span className="place-note-hint">只保存在此浏览器。清空后保存可移除备注。</span>
-            <div className="place-note-actions"><button type="button" onClick={() => setEditingPlace(null)}>取消</button><button type="submit">保存备注</button></div>
+            <input id="place-note-input" autoFocus maxLength={80} value={draftNote} disabled={noteSaving} onChange={(event) => setDraftNote(event.target.value)} placeholder="例如：家、公司、常去的咖啡店" />
+            <span className="place-note-hint">保存到当前账号。清空后保存可移除备注。</span>
+            {noteError && <span className="map-views-operation-error" role="alert">{noteError}</span>}
+            <div className="place-note-actions"><button type="button" disabled={noteSaving} onClick={() => setEditingPlace(null)}>取消</button><button type="submit" disabled={noteSaving}>{noteSaving ? "正在保存…" : "保存备注"}</button></div>
           </form>
         </Popup>
       )}

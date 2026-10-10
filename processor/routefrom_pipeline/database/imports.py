@@ -17,7 +17,7 @@ from routefrom_pipeline.ingest.linggan import (
 from routefrom_pipeline.model import CsvProfile, NormalizedLocationPoint
 
 PARSER_NAME = "linggan_footprint_csv"
-PARSER_VERSION = "linggan-csv-v1"
+PARSER_VERSION = "linggan-csv-v2"
 SCHEMA_FINGERPRINT = hashlib.sha256("\x1f".join(EXPECTED_COLUMNS).encode()).hexdigest()
 
 
@@ -45,7 +45,8 @@ class ImportResult:
 
 
 def _point_wkt(point: NormalizedLocationPoint) -> str:
-    return f"POINT({point.wgs_longitude:.12g} {point.wgs_latitude:.12g})"
+    # repr preserves the source float exactly through the WKT/float8 roundtrip.
+    return f"POINT({point.wgs_longitude!r} {point.wgs_latitude!r})"
 
 
 def _point_row(

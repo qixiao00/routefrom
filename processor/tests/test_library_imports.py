@@ -52,6 +52,11 @@ class LibraryImportTests(unittest.TestCase):
         ])
         key = observation_fingerprint(corrected, "phone")
         self.assertEqual(len(result.processing_points({1000: key})), 1)
+        chosen = result.processing_observations({1000: key})
+        self.assertEqual(chosen[0].fingerprint, key)
+        self.assertEqual(chosen[0].origins[0].import_id, "b")
+        self.assertEqual(chosen[0].point.source_row_number, 0)
+        self.assertEqual(result.processing_points({1000: key})[0].source_row_number, 2)
         self.assertEqual(len(result.observations), 2)
         with self.assertRaises(ValueError):
             result.processing_points({1000: "not-an-observation"})

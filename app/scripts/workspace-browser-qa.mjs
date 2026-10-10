@@ -85,6 +85,42 @@ export async function verifyWorkspaceBrowser({ baseURL, accounts, richEntries })
     const directory = path.resolve("../artifacts");
     await mkdir(directory, { recursive: true });
     await page.screenshot({ path: path.join(directory, "personal-workspace-qa.png"), fullPage: true });
+    // Right-click a real blue point on the rendered map, not a simulated handler.
+    const box = await canvas.boundingBox();
+    // This synthetic horizontal route has its place at the route midpoint.
+    // fitBounds uses 80px top / 120px bottom padding, offsetting it 20px upward.
+    await canvas.click({ button: "right", position: { x: box.width / 2, y: box.height / 2 - 20 } });
+    await expect(page.locator("#place-note-input")).toBeVisible();
+    await page.locator("#place-note-input").fill("合成浏览器地点");
+    await page.route("**/api/workspace/place-notes", route => route.request().method() === "PUT" ? route.abort() : route.continue());
+    await page.getByRole("button", { name: "保存备注", exact: true }).click();
+    await expect(page.locator(".place-note-popup [role=alert]")).toBeVisible();
+    await expect(page.locator("#place-note-input")).toHaveValue("合成浏览器地点");
+    await page.unroute("**/api/workspace/place-notes");
+    await page.getByRole("button", { name: "地点备注与同步" }).click();
+    await page.getByRole("button", { name: "重新读取账号备注", exact: true }).click();
+    await expect(page.locator(".place-notes-panel")).toContainText("0 条账号备注");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "保存备注", exact: true }).click();
+    await expect(page.locator("#place-note-input")).toHaveCount(0);
+    await page.getByRole("button", { name: "地点备注与同步" }).click();
+    await expect(page.locator(".place-notes-panel")).toContainText("合成浏览器地点");
+    await page.screenshot({ path: path.join(directory, "cloud-place-notes-qa.png"), fullPage: true });
+    await page.keyboard.press("Escape");
+    const secondContext = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" });
+    try {
+      const second = await secondContext.newPage(); await login(accounts[1], second);
+      await second.getByRole("button", { name: "地点备注与同步" }).click();
+      await expect(second.locator(".place-notes-panel")).toContainText("合成浏览器地点", { timeout: 20_000 });
+      await second.getByRole("button", { name: "合成浏览器地点 已关联地点" }).click();
+      second.once("dialog", dialog => dialog.accept());
+      await second.getByRole("button", { name: "删除这条备注", exact: true }).click();
+      await expect(second.locator(".place-notes-panel")).toContainText("0 条账号备注");
+    } finally { await secondContext.close(); }
+    await page.getByRole("button", { name: "地点备注与同步" }).click();
+    await page.getByRole("button", { name: "重新读取账号备注", exact: true }).click();
+    await expect(page.locator(".place-notes-panel")).toContainText("0 条账号备注");
+    await page.keyboard.press("Escape");
     await verifyCloudViewsBrowser({ browser, page, context, login, account: accounts[1], mintPixels });
 
     const previousOwner = await page.evaluate(() => JSON.parse(localStorage.getItem("routefrom-workspace-view-v1")).state.ownerId);

@@ -6,5 +6,8 @@ export function placeNoteKey(datasetId: string, place: PreviewPlace): string {
 }
 
 export function placeDisplayName(datasetId: string, place: PreviewPlace, notes: Record<string, string>): string {
+  // Presence of the cloud field (even null) is authoritative. A deleted cloud
+  // label must not reappear from a browser-only legacy record.
+  if (place.note !== undefined) return place.note?.label || place.name;
   return notes[placeNoteKey(datasetId, place)] || place.name;
 }

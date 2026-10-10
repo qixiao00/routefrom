@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 export async function cleanupTestAccounts(pool, identities) {
+  if (!identities.length) return;
   const database = await pool.query("SELECT current_database() AS name");
   assert.match(database.rows[0].name, /^routefrom_integration/);
   for (const email of identities) {
@@ -14,6 +15,8 @@ export async function cleanupTestAccounts(pool, identities) {
         await pool.query("DELETE FROM app.library_snapshots WHERE user_id = $1", [id]);
         await pool.query("DELETE FROM app.library_jobs WHERE user_id = $1", [id]);
         await pool.query("DELETE FROM app.library_files WHERE user_id = $1", [id]);
+        await pool.query("DELETE FROM app.library_place_notes WHERE user_id = $1", [id]);
+        await pool.query("DELETE FROM app.library_processing_inputs WHERE user_id = $1", [id]);
         await pool.query("DELETE FROM app.library_observations WHERE library_id IN (SELECT id FROM app.footprint_libraries WHERE user_id = $1)", [id]);
         await pool.query("DELETE FROM app.footprint_libraries WHERE user_id = $1", [id]);
         await pool.query("UPDATE app.processing_runs SET supersedes_run_id = NULL WHERE dataset_id IN (SELECT id FROM app.datasets WHERE user_id = $1)", [id]);
