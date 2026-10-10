@@ -2,6 +2,7 @@ import { normalizeTimeRanges, type TimeRange } from "./workspace-query.ts";
 
 export const DEFAULT_LAYERS = { track: true, sparse: true, highSpeed: false, stays: false, gaps: true, places: true };
 export const DEFAULT_MAP_VIEW = { longitude: 105, latitude: 28, zoom: 1.5, pitch: 0, bearing: 0 };
+export const DEFAULT_PANELS = { layers: true, inspector: true };
 
 export function sameWorkspaceOwner(saved: string | null, incoming: string | null): boolean {
   return !!incoming && saved === incoming;
@@ -13,9 +14,11 @@ export function normalizeSavedWorkspaceView(value: unknown) {
   const saved = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const ownerId = typeof saved.ownerId === "string" ? saved.ownerId : null;
   const defaults = { ownerId, viewRunId: null as string | null, ranges: [] as TimeRange[],
-    visibleLayers: { ...DEFAULT_LAYERS }, placeNotes: {} as Record<string, string>, mapView: { ...DEFAULT_MAP_VIEW } };
+    visibleLayers: { ...DEFAULT_LAYERS }, placeNotes: {} as Record<string, string>, mapView: { ...DEFAULT_MAP_VIEW },
+    panels: { ...DEFAULT_PANELS }, cloudViewPending: false };
   if (!ownerId) return defaults; // Legacy shared-browser state cannot be assigned to a new account.
   defaults.viewRunId = typeof saved.viewRunId === "string" ? saved.viewRunId : null;
+  defaults.cloudViewPending = saved.cloudViewPending === true;
   if (Array.isArray(saved.ranges) && saved.ranges.length <= 64) {
     const valid = saved.ranges.filter((range): range is TimeRange => range && typeof range.start === "string" &&
       typeof range.end === "string" && Number.isFinite(Date.parse(range.start)) && Number.isFinite(Date.parse(range.end)) &&
@@ -26,6 +29,12 @@ export function normalizeSavedWorkspaceView(value: unknown) {
     for (const key of Object.keys(DEFAULT_LAYERS) as Array<keyof typeof DEFAULT_LAYERS>) {
       const value = (saved.visibleLayers as Record<string, unknown>)[key];
       if (typeof value === "boolean") defaults.visibleLayers[key] = value;
+    }
+  }
+  if (saved.panels && typeof saved.panels === "object") {
+    for (const key of Object.keys(DEFAULT_PANELS) as Array<keyof typeof DEFAULT_PANELS>) {
+      const value = (saved.panels as Record<string, unknown>)[key];
+      if (typeof value === "boolean") defaults.panels[key] = value;
     }
   }
   if (saved.placeNotes && typeof saved.placeNotes === "object" && !Array.isArray(saved.placeNotes)) {

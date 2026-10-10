@@ -18,7 +18,7 @@ class DatabaseMigrationTests(unittest.TestCase):
     def test_migration_numbers_are_contiguous(self) -> None:
         numbers = [int(path.name.split("_", 1)[0]) for path in self.migrations]
 
-        self.assertEqual(numbers, list(range(1, 17)))
+        self.assertEqual(numbers, list(range(1, 18)))
 
     def test_every_migration_parses_as_postgresql(self) -> None:
         for path in self.migrations:
@@ -28,7 +28,7 @@ class DatabaseMigrationTests(unittest.TestCase):
 
     def test_workspace_sql_templates_parse_as_postgresql(self) -> None:
         # Catch reserved-word aliases before they reach a real map request.
-        for name in ("workspace-bootstrap.ts", "workspace-viewport.ts", "workspace-events.ts"):
+        for name in ("workspace-bootstrap.ts", "workspace-viewport.ts", "workspace-events.ts", "workspace-views.ts"):
             source = (self.repo_root / "app" / "src" / "server" / name).read_text(encoding="utf-8")
             queries = re.findall(r"(?:sql|getDatabase\(\))`([\s\S]*?)`", source)
             self.assertGreater(len(queries), 0, name)

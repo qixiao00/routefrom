@@ -3,9 +3,10 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { normalizeTimeRanges, type TimeRange } from "./workspace-query";
+import { normalizeTimeRanges, type TimeRange } from "./workspace-query.ts";
 import type { WorkspacePreview } from "./workspace-data";
-import { DEFAULT_LAYERS, DEFAULT_MAP_VIEW, normalizeSavedWorkspaceView, sameWorkspaceOwner } from "./workspace-session";
+import { DEFAULT_LAYERS, DEFAULT_MAP_VIEW, DEFAULT_PANELS, normalizeSavedWorkspaceView, sameWorkspaceOwner } from "./workspace-session.ts";
+import { canonicalMapCamera, type MapViewConfig } from "./map-view-config.ts";
 
 export type LayerId = "track" | "sparse" | "highSpeed" | "stays" | "gaps" | "places";
 export type SelectionKind = "stay" | "gap" | "trip" | "place" | "leg";
@@ -29,6 +30,10 @@ interface WorkspaceState {
   placeNotes: Record<string, string>;
   selection: { kind: SelectionKind; id: string } | null;
   mapView: MapView;
+  cloudViewPending: boolean;
+  panels: typeof DEFAULT_PANELS;
+  setPanels: (panels: typeof DEFAULT_PANELS) => void;
+  setCloudViewPending: (pending: boolean) => void;
   setLoading: (ownerId: string) => void;
   setData: (data: WorkspacePreview) => void;
   setError: (message: string) => void;
@@ -40,6 +45,7 @@ interface WorkspaceState {
   useSuggestedRange: () => void;
   setSelection: (selection: WorkspaceState["selection"]) => void;
   setMapView: (view: MapView) => void;
+  applyMapViewConfig: (config: MapViewConfig) => void;
 }
 
 const initialMapView: MapView = DEFAULT_MAP_VIEW;
@@ -57,9 +63,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       placeNotes: {},
       selection: null,
       mapView: initialMapView,
+      cloudViewPending: false,
+      panels: { ...DEFAULT_PANELS },
+      setPanels: (panels) => set({ panels, cloudViewPending: true }),
+      setCloudViewPending: (cloudViewPending) => set({ cloudViewPending }),
       setLoading: (ownerId) => set((state) => ({ status: "loading", error: null, data: null, selection: null,
         ...(sameWorkspaceOwner(state.ownerId, ownerId) ? {} : { ownerId, viewRunId: null, ranges: [],
-          visibleLayers: { ...DEFAULT_LAYERS }, placeNotes: {}, mapView: { ...initialMapView } }),
+          visibleLayers: { ...DEFAULT_LAYERS }, placeNotes: {}, mapView: { ...initialMapView }, cloudViewPending: false, panels: { ...DEFAULT_PANELS } }),
       })),
       setData: (data) =>
         set((state) => {
@@ -77,11 +87,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             selection: sameRun ? state.selection : null,
             visibleLayers: sameOwner ? state.visibleLayers : { ...DEFAULT_LAYERS },
             placeNotes: sameOwner ? state.placeNotes : {},
+            panels: sameOwner ? state.panels : { ...DEFAULT_PANELS },
+            cloudViewPending: sameOwner ? state.cloudViewPending : false,
           };
         }),
       setError: (message) => set({ status: "error", error: message }),
       toggleLayer: (layer) =>
         set((state) => ({
+          cloudViewPending: true,
           visibleLayers: {
             ...state.visibleLayers,
             [layer]: !state.visibleLayers[layer],
@@ -102,6 +115,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const end = Date.parse(anchor.start) - Math.min(duration, 24 * 60 * 60 * 1000);
         const start = end - Math.min(duration, 3 * 24 * 60 * 60 * 1000);
         set({
+          cloudViewPending: true,
           ranges: normalizeTimeRanges([
             ...state.ranges,
             { start: new Date(start).toISOString(), end: new Date(end).toISOString() },
@@ -111,6 +125,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       updateRange: (index, range) => {
         if (Date.parse(range.start) >= Date.parse(range.end)) return;
         set((state) => ({
+          cloudViewPending: true,
           ranges: normalizeTimeRanges(
             state.ranges.map((current, position) => (position === index ? range : current)),
           ),
@@ -118,20 +133,28 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
       removeRange: (index) =>
         set((state) => ({
+          cloudViewPending: true,
           ranges: state.ranges.length <= 1
             ? state.ranges
             : state.ranges.filter((_, position) => position !== index),
         })),
       useSuggestedRange: () => {
         const data = get().data;
-        if (data) set({ ranges: data.suggestedRanges });
+        if (data) set({ ranges: data.suggestedRanges, cloudViewPending: true });
       },
       setSelection: (selection) => set({ selection }),
-      setMapView: (mapView) => set({ mapView }),
+      setMapView: (mapView) => set({ mapView: canonicalMapCamera(mapView), cloudViewPending: true }),
+      applyMapViewConfig: (config) => set((state) => ({
+        // An empty-library view must not mask the suggested camera after the
+        // first upload. Empty ranges are unconfigured, not a calendar bucket.
+        mapView: !config.ranges.length && state.data?.library?.state === "ready" ? state.mapView : { ...config.map.camera },
+        visibleLayers: { ...config.visibleLayers }, panels: { ...config.panels }, selection: null, cloudViewPending: true,
+        ranges: state.data?.library?.state === "empty" ? [] : config.ranges.length ? config.ranges : state.data?.suggestedRanges ?? [],
+      })),
     }),
     {
       name: "routefrom-workspace-view-v1",
-      version: 2,
+      version: 3,
       migrate: (persisted) => normalizeSavedWorkspaceView(persisted),
       storage: createJSONStorage(() => localStorage),
       merge: (persisted, current) => {
@@ -144,6 +167,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         visibleLayers: state.visibleLayers,
         placeNotes: state.placeNotes,
         mapView: state.mapView,
+        cloudViewPending: state.cloudViewPending,
+        panels: state.panels,
       }),
     },
   ),

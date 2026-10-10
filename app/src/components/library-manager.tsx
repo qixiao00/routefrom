@@ -27,9 +27,12 @@ export function LibraryManager() {
   const sequence = useRef(0);
   const uploadController = useRef<AbortController | null>(null);
   const operation = useRef(false);
+  const navigating = useRef(false);
 
   const report = useCallback((cause: unknown) => {
+    if (!alive.current || navigating.current) return;
     if (cause instanceof LibraryApiError && cause.status === 401) {
+      navigating.current = true;
       window.location.assign("/login?next=/library");
       return;
     }
@@ -37,6 +40,7 @@ export function LibraryManager() {
     if (alive.current) setError(cause instanceof Error ? cause.message : "暂时无法连接，请稍后重试。");
   }, []);
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    if (!alive.current || navigating.current || signal?.aborted) return;
     const request = ++sequence.current;
     try {
       const result = await loadLibrary(signal);
@@ -58,7 +62,7 @@ export function LibraryManager() {
       await refresh(controller.signal);
       // A repeated connection error must not stop polling. Schedule after the
       // request finishes, so a slow database cannot accumulate overlapping polls.
-      if (!controller.signal.aborted) timer = window.setTimeout(poll, pollingInterval);
+      if (!controller.signal.aborted && !navigating.current) timer = window.setTimeout(poll, pollingInterval);
     };
     timer = window.setTimeout(poll, pollingInterval);
     return () => { window.clearTimeout(timer); controller.abort(); };
@@ -99,12 +103,12 @@ export function LibraryManager() {
   }
 
   async function operate(key: string, action: () => Promise<unknown>, message: string) {
-    if (operation.current) return;
+    if (operation.current || navigating.current) return;
     operation.current = true;
     setPending(key); setError(null); setNotice(null);
-    try { await action(); if (alive.current) { setConfirmWithdraw(null); setNotice(message); await refresh(); } }
+    try { await action(); if (alive.current && !navigating.current) { setConfirmWithdraw(null); setNotice(message); await refresh(); } }
     catch (cause) { report(cause); }
-    finally { operation.current = false; if (alive.current) setPending(null); }
+    finally { operation.current = false; if (alive.current && !navigating.current) setPending(null); }
   }
 
   const activeCount = data?.files.filter(file => file.status === "active").length ?? 0;
@@ -118,6 +122,10 @@ export function LibraryManager() {
         <button type="button" disabled={!!pending} aria-label="退出登录" title="退出登录" onClick={() => void operate("logout", async () => {
           const result = await authClient.signOut();
           if (result.error) throw new Error("退出失败，请重试。");
+          // Sign-out is terminal for this page. A follow-up refresh would return
+          // 401 and start a second navigation, cancelling the first login load.
+          navigating.current = true;
+          sequence.current++;
           window.location.assign("/login");
         }, "已退出登录。")}><LogOut size={16} /></button>
       </div>

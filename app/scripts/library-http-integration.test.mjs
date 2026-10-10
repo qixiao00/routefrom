@@ -10,6 +10,7 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import { Pool } from "pg";
 import { cleanupTestAccounts } from "./library-test-cleanup.mjs";
+import { verifyMapViewsHttp } from "./workspace-views-http-qa.mjs";
 
 const execute = promisify(execFile);
 const header = "geoTime,latitude,longitude,wgsLatitude,wgsLongitude,altitude,course,horizontalAccuracy,verticalAccuracy,speed,dayTimeMills,networkType,networkName,locationType\n";
@@ -72,7 +73,7 @@ test(process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
   };
   try {
     const version = await pool.query("SELECT max(filename) AS filename FROM routefrom_meta.schema_migrations");
-    assert.equal(version.rows[0].filename, "0016_trajectory_chunk_bounds.sql", "apply current migrations to the test database first");
+    assert.equal(version.rows[0].filename, "0017_library_map_views.sql", "apply current migrations to the test database first");
     checkpoint("database ready");
     server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--port", "3100"],
       { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -104,7 +105,8 @@ test(process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
     checkpoint("two accounts ready");
     const empty = await bootstrap(a);
     targetLibraryId = empty.library.id;
-    const secondLibraryId = (await bootstrap(b)).library.id;
+    const secondBootstrap = await bootstrap(b);
+    const secondLibraryId = secondBootstrap.library.id;
     assert.equal(empty.library.state, "empty");
     assert.equal(empty.dataset.pointCount, 0);
     assert.deepEqual(empty.paths, []);
@@ -112,6 +114,9 @@ test(process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
     assert.deepEqual(empty.suggestedRanges, []);
     assert.equal((await request("/api/library/imports", a, { method: "POST", headers: { origin: "https://untrusted.example" } })).status, 403);
     const base = 1682028286912;
+    const verifyViewsAfterPublication = await verifyMapViewsHttp({ request, a, b, subjectA: empty.account.subject,
+      subjectB: secondBootstrap.account.subject, userIdA: empty.account.id, libraryIdA: empty.library.id, pool, base });
+    checkpoint("cloud views: validation, atomic revisions and isolation passed");
     if (process.env.ROUTEFROM_BROWSER_SMOKE_ONLY !== "true") {
     const firstCsv = csv([[base, "118.7"], [base + 10000, "118.7001"]]);
     let response = await upload(a, firstCsv);
@@ -277,6 +282,8 @@ test(process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
       { ...richIds, ranges: richRanges, bounds: [118.69, 30.89, 118.72, 30.91], detailZoom: 15 })).status, 404,
       "reverse account isolation also holds after the second account publishes");
     checkpoint("nonempty algorithm events, places and geometry passed");
+    await verifyViewsAfterPublication();
+    checkpoint("cloud views preserved across dataset publication");
     if (process.env.ROUTEFROM_RUN_BROWSER_TESTS === "true") {
       const { verifyWorkspaceBrowser } = await import("./workspace-browser-qa.mjs");
       await verifyWorkspaceBrowser({ baseURL, accounts: browserAccounts, richEntries: richEntries.length });

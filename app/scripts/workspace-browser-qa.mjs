@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { inflateSync } from "node:zlib";
 import { chromium, expect } from "@playwright/test";
+import { verifyCloudViewsBrowser } from "./workspace-cloud-browser-qa.mjs";
 
 function mintPixels(png) {
   // Read an actual canvas screenshot, not React props or a source count.
@@ -52,12 +53,12 @@ export async function verifyWorkspaceBrowser({ baseURL, accounts, richEntries })
     if (!response.url().endsWith("/api/workspace/viewport") || !response.ok()) return;
     try { geometry = await response.json(); } catch { /* cancelled when the camera changes */ }
   });
-  const login = async account => {
-    await page.goto(`${baseURL}/login`);
-    await page.getByLabel("邮箱", { exact: true }).fill(account.email);
-    await page.getByLabel("密码", { exact: true }).fill(account.password);
-    await page.getByRole("button", { name: "登录", exact: true }).click();
-    await page.waitForURL(`${baseURL}/`);
+  const login = async (account, target = page) => {
+    await target.goto(`${baseURL}/login`);
+    await target.getByLabel("邮箱", { exact: true }).fill(account.email);
+    await target.getByLabel("密码", { exact: true }).fill(account.password);
+    await target.getByRole("button", { name: "登录", exact: true }).click();
+    await target.waitForURL(`${baseURL}/`);
   };
   try {
     await login(accounts[1]);
@@ -84,6 +85,7 @@ export async function verifyWorkspaceBrowser({ baseURL, accounts, richEntries })
     const directory = path.resolve("../artifacts");
     await mkdir(directory, { recursive: true });
     await page.screenshot({ path: path.join(directory, "personal-workspace-qa.png"), fullPage: true });
+    await verifyCloudViewsBrowser({ browser, page, context, login, account: accounts[1], mintPixels });
 
     const previousOwner = await page.evaluate(() => JSON.parse(localStorage.getItem("routefrom-workspace-view-v1")).state.ownerId);
     await page.getByRole("button", { name: "管理账号与足迹", exact: true }).click();

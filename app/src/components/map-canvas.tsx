@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FeatureCollection, LineString, MultiLineString, Point } from "geojson";
 import type { MapLayerMouseEvent, MapRef } from "react-map-gl/maplibre";
 import Map, { Layer, Marker, NavigationControl, Popup, Source } from "react-map-gl/maplibre";
@@ -8,6 +8,7 @@ import { maplibre } from "@/lib/maplibre-runtime";
 import { buildTrackGeoJSON } from "@/lib/map-track-data";
 import { buildPlaceGeoJSON } from "@/lib/map-place-data";
 import { placeDisplayName, placeNoteKey } from "@/lib/place-notes";
+import { mapCamerasMatch } from "@/lib/map-view-config";
 
 import type {
   PreviewInferredConnection,
@@ -66,6 +67,18 @@ export function MapCanvas({
   const [placeGroup, setPlaceGroup] = useState<{ position: number[]; ids: string[] } | null>(null);
   const [editingPlace, setEditingPlace] = useState<PreviewPlace | null>(null);
   const [draftNote, setDraftNote] = useState("");
+  const [mapReady, setMapReady] = useState(false);
+  // initialViewState is intentionally uncontrolled while dragging. External
+  // restores must still move the real map; compare to avoid feedback loops and
+  // apply before resize observers can report the previous camera into the store.
+  useLayoutEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!mapReady || !map) return;
+    const center = map.getCenter();
+    if (!mapCamerasMatch(mapView, { longitude: center.lng, latitude: center.lat, zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() })) {
+      map.jumpTo({ center: [mapView.longitude, mapView.latitude], zoom: mapView.zoom, pitch: mapView.pitch, bearing: mapView.bearing });
+    }
+  }, [mapView, mapReady]);
   const denseHistory = selectedPaths.length > 500;
   const lineData = useMemo(
     () => ({ type: "FeatureCollection" as const, features: [
@@ -259,6 +272,7 @@ export function MapCanvas({
           "sky-horizon-blend": 0.68,
           "atmosphere-blend": 0.75,
         });
+        setMapReady(true);
         reportViewport();
       }}
       onIdle={() => {

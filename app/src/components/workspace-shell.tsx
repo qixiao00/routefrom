@@ -10,7 +10,6 @@ import {
   Check,
   ChevronDown,
   CircleHelp,
-  Cloud,
   Command,
   Database,
   Eye,
@@ -23,6 +22,9 @@ import {
   MapPin,
   MoreHorizontal,
   PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Plane,
   Plus,
   RefreshCw,
@@ -33,7 +35,7 @@ import {
 } from "lucide-react";
 
 import { clearWorkspaceCaches, loadViewportPaths, loadWorkspaceEvents, loadWorkspacePreview, WorkspaceBootstrapError } from "@/lib/workspace-client";
-import { DEFAULT_LAYERS, DEFAULT_MAP_VIEW, sameWorkspaceOwner } from "@/lib/workspace-session";
+import { DEFAULT_LAYERS, DEFAULT_MAP_VIEW, DEFAULT_PANELS, sameWorkspaceOwner } from "@/lib/workspace-session";
 import {
   drawableInferredConnections,
   gapExplanation,
@@ -50,6 +52,7 @@ import { placeDisplayName, placeNoteKey } from "@/lib/place-notes";
 import { type LayerId, useWorkspaceStore } from "@/lib/workspace-store";
 
 import { TimeRangePicker } from "./time-range-picker";
+import { MapViewsControl } from "./map-views-control";
 
 const MapCanvas = dynamic(() => import("./map-canvas").then((module) => module.MapCanvas), {
   ssr: false,
@@ -126,6 +129,8 @@ export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
     placeNotes: storedNotes,
     selection,
     mapView: storedMapView,
+    panels: storedPanels,
+    setPanels,
     setLoading,
     setData,
     setError,
@@ -146,6 +151,7 @@ export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
   const visibleLayers = owned ? storedLayers : DEFAULT_LAYERS;
   const placeNotes = owned ? storedNotes : {};
   const mapView = owned ? storedMapView : DEFAULT_MAP_VIEW;
+  const panels = owned ? storedPanels : DEFAULT_PANELS;
   const status = owned ? storedStatus : "loading";
 
   useEffect(() => {
@@ -253,7 +259,7 @@ export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
   }, [viewData, selection]);
 
   return (
-    <main className="workspace">
+    <main className={`workspace ${panels.layers ? "" : "layers-collapsed"} ${panels.inspector ? "" : "inspector-collapsed"}`}>
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark"><Route size={17} /></div>
@@ -268,7 +274,7 @@ export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
         </button>
 
         <div className="topbar-center">
-          <button className="date-control" type="button" disabled={!ranges.length} onClick={() => setEditingRange(0)}>
+          <button className="date-control" type="button" disabled={!ranges.length} onClick={() => { setPanels({ ...panels, layers: true }); setEditingRange(0); }}>
             <CalendarRange size={15} />
             <span>{ranges.length > 1 ? `${ranges.length} 个不连续区间` : ranges[0] ? `${formatInstant(ranges[0].start)} — ${formatInstant(ranges[0].end)}` : "选择时间"}</span>
             <ChevronDown size={13} />
@@ -281,7 +287,11 @@ export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
         </div>
 
         <div className="topbar-actions">
-          <span className="sync-state"><Cloud size={14} />视图已保存在本机</span>
+          <MapViewsControl key={accountSubject} accountSubject={accountSubject} ready={owned && status === "ready"} />
+          <button className="icon-button inspector-toggle" type="button" aria-label={panels.inspector ? "隐藏检查器" : "显示检查器"}
+            onClick={() => setPanels({ ...panels, inspector: !panels.inspector })}>
+            {panels.inspector ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+          </button>
           <button className="icon-button" type="button" aria-label="帮助"><CircleHelp size={16} /></button>
           <button className="avatar" type="button" aria-label="管理账号与足迹" onClick={() => window.location.assign("/library")}>RF</button>
         </div>
@@ -297,7 +307,7 @@ export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
           <button
             key={id}
             className={activeTool === id ? "active" : ""}
-            onClick={() => id === "data" ? window.location.assign("/library") : setActiveTool(id)}
+            onClick={() => { if (id === "data") window.location.assign("/library"); else { setActiveTool(id); if (id === "layers") setPanels({ ...panels, layers: true }); } }}
             aria-label={label}
             title={label}
             type="button"
@@ -305,7 +315,8 @@ export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
             <Icon size={18} />
           </button>
         ))}
-        <button className="rail-bottom" type="button" aria-label="收起侧栏"><PanelLeftClose size={18} /></button>
+        <button className="rail-bottom" type="button" aria-label={panels.layers ? "收起侧栏" : "展开侧栏"}
+          onClick={() => setPanels({ ...panels, layers: !panels.layers })}>{panels.layers ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}</button>
       </aside>
 
       <motion.aside
