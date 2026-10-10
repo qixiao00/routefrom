@@ -56,8 +56,9 @@ behavior are covered with deterministic fixtures.
 
 ## Building the private frontend preview
 
-Until the PostGIS-backed workspace API is connected, the MVP can read a
-gitignored JSON projection of a local CSV. The export runs the same processor,
+The website now queries each account's published PostGIS snapshot. A
+gitignored JSON projection remains useful for offline algorithm audits, but
+is no longer the website's data source. The export runs the same processor,
 keeps gaps and confidence-bearing derived events, and limits trajectory
 vertices for an interactive MapLibre preview.
 
@@ -68,7 +69,7 @@ routefrom-preview "C:\private\linggan.csv" `
 ```
 
 The source CSV and generated preview are private local artifacts and must not
-be committed. The frontend README documents the guarded server-only endpoint.
+be committed. The frontend README documents account-backed website setup.
 
 The import transaction commits before algorithm execution. This preserves the
 raw observations when an algorithm fails and allows a later version to retry

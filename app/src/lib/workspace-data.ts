@@ -83,6 +83,8 @@ export interface PreviewPlace {
 
 export interface WorkspacePreview {
   schemaVersion: 1;
+  account?: { id: string; subject?: string; name: string; timezone: string };
+  library?: { id: string; state: "empty" | "ready"; publishedAt: string | null };
   dataset: {
     id: string;
     name: string;

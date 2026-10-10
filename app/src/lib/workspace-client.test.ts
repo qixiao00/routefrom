@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { loadViewportPaths, loadWorkspaceEvents } from "./workspace-client.ts";
+import { clearWorkspaceCaches, loadViewportPaths, loadWorkspaceEvents } from "./workspace-client.ts";
 
 test("nearby map moves reuse the cached coverage until the user leaves it or changes zoom", async () => {
   const originalFetch = globalThis.fetch;
@@ -47,4 +47,33 @@ test("time events are fetched once per selection", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("a response from before an account switch cannot repopulate cleared caches", async () => {
+  const originalFetch = globalThis.fetch;
+  const ranges = [{ start: "2026-07-05T00:00:00Z", end: "2026-07-06T00:00:00Z" }];
+  let requests = 0;
+  let release: (() => void) | undefined;
+  globalThis.fetch = async (_input, init) => {
+    requests += 1;
+    if (requests === 1) await new Promise<void>(resolve => { release = resolve; });
+    const body = JSON.parse(String(init?.body));
+    return Response.json(body.bounds ? { paths: [], coverageBounds: body.bounds, detailZoom: body.detailZoom,
+      selectedBounds: null, selectedDistanceMeters: 0, visibleVertexCount: 0 } : { gaps: [], stays: [], trips: [], modeLegs: [] });
+  };
+  try {
+    for (const kind of ["viewport", "events"] as const) {
+      requests = 0;
+      clearWorkspaceCaches();
+      const load = () => kind === "viewport"
+        ? loadViewportPaths("switch-dataset", "switch-run", ranges, [118, 24, 119, 25], 10)
+        : loadWorkspaceEvents("switch-dataset", "switch-run", ranges);
+      const pending = load();
+      clearWorkspaceCaches();
+      release!();
+      await pending;
+      await load();
+      assert.equal(requests, 2, kind);
+    }
+  } finally { globalThis.fetch = originalFetch; clearWorkspaceCaches(); }
 });

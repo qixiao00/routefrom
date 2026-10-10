@@ -37,6 +37,13 @@ export async function loadWorkspacePreview(signal?: AbortSignal): Promise<Worksp
 const viewportCache: Array<{ key: string; response: ViewportResponse }> = [];
 const MAX_CACHED_VIEWPORTS = 8;
 const eventCache = new Map<string, WorkspaceEvents>();
+let cacheGeneration = 0;
+
+export function clearWorkspaceCaches(): void {
+  cacheGeneration += 1;
+  viewportCache.length = 0;
+  eventCache.clear();
+}
 
 function containsBounds(outer: ViewportBounds, inner: ViewportBounds): boolean {
   return outer[0] <= inner[0] && outer[1] <= inner[1] &&
@@ -62,6 +69,7 @@ export async function loadViewportPaths(
   detailZoom: number,
   signal?: AbortSignal,
 ): Promise<ViewportResponse> {
+  const generation = cacheGeneration;
   const key = `${datasetId}:${processingRunId}:${JSON.stringify(ranges)}:${detailZoom}`;
   const cached = viewportCache.find(
     (entry) => entry.key === key && containsBounds(entry.response.coverageBounds, visibleBounds),
@@ -90,8 +98,10 @@ export async function loadViewportPaths(
     );
   }
   const result = (await response.json()) as ViewportResponse;
-  viewportCache.unshift({ key, response: result });
-  if (viewportCache.length > MAX_CACHED_VIEWPORTS) viewportCache.pop();
+  if (generation === cacheGeneration && !signal?.aborted) {
+    viewportCache.unshift({ key, response: result });
+    if (viewportCache.length > MAX_CACHED_VIEWPORTS) viewportCache.pop();
+  }
   return result;
 }
 
@@ -101,6 +111,7 @@ export async function loadWorkspaceEvents(
   ranges: readonly TimeRange[],
   signal?: AbortSignal,
 ): Promise<WorkspaceEvents> {
+  const generation = cacheGeneration;
   const key = `${datasetId}:${processingRunId}:${JSON.stringify(ranges)}`;
   const cached = eventCache.get(key);
   if (cached) return cached;
@@ -119,7 +130,9 @@ export async function loadWorkspaceEvents(
     );
   }
   const result = (await response.json()) as WorkspaceEvents;
-  eventCache.set(key, result);
-  if (eventCache.size > 8) eventCache.delete(eventCache.keys().next().value!);
+  if (generation === cacheGeneration && !signal?.aborted) {
+    eventCache.set(key, result);
+    if (eventCache.size > 8) eventCache.delete(eventCache.keys().next().value!);
+  }
   return result;
 }

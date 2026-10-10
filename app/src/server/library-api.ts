@@ -72,6 +72,9 @@ export async function readBoundedMultipart(request: Request, maxBytes: number) {
 }
 
 export async function readBoundedJson(request: Request, maxBytes = 65536): Promise<Record<string, unknown>> {
+  if (request.headers.get("content-type")?.split(";", 1)[0].trim() !== "application/json") {
+    throw new LibraryRequestError(415, "unsupported_media_type", "请求需要使用 JSON 格式。");
+  }
   const reader = request.body?.getReader();
   if (!reader) throw new LibraryRequestError(400, "invalid_request", "请求内容为空。");
   const chunks: Uint8Array[] = [];

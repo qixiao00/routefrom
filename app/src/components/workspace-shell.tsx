@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import {
@@ -31,7 +32,8 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
-import { loadViewportPaths, loadWorkspaceEvents, loadWorkspacePreview } from "@/lib/workspace-client";
+import { clearWorkspaceCaches, loadViewportPaths, loadWorkspaceEvents, loadWorkspacePreview, WorkspaceBootstrapError } from "@/lib/workspace-client";
+import { DEFAULT_LAYERS, DEFAULT_MAP_VIEW, sameWorkspaceOwner } from "@/lib/workspace-session";
 import {
   drawableInferredConnections,
   gapExplanation,
@@ -93,7 +95,15 @@ function formatDistance(meters: number): string {
 type SelectedEntity = PreviewStay | PreviewGap | PreviewPlace;
 const EMPTY_PATHS: ViewportPath[] = [];
 
-export function WorkspaceShell() {
+function redirectExpiredSession(cause: unknown): boolean {
+  if (cause instanceof WorkspaceBootstrapError && cause.code === "authentication_required") {
+    window.location.assign("/login");
+    return true;
+  }
+  return false;
+}
+
+export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
   const [activeTool, setActiveTool] = useState("layers");
   const [fitRequest, setFitRequest] = useState(0);
   const [globeRequest, setGlobeRequest] = useState(0);
@@ -107,14 +117,15 @@ export function WorkspaceShell() {
   const [eventState, setEventState] = useState<{ sourceKey: string; events: WorkspaceEvents } | null>(null);
   const [eventError, setEventError] = useState<string | null>(null);
   const {
-    status,
+    ownerId,
+    status: storedStatus,
     error,
-    data,
-    ranges,
-    visibleLayers,
-    placeNotes,
+    data: storedData,
+    ranges: storedRanges,
+    visibleLayers: storedLayers,
+    placeNotes: storedNotes,
     selection,
-    mapView,
+    mapView: storedMapView,
     setLoading,
     setData,
     setError,
@@ -127,16 +138,31 @@ export function WorkspaceShell() {
     setSelection,
     setMapView,
   } = useWorkspaceStore();
+  // Never render another account's persisted dates, camera or place labels, even
+  // during the first frame before effects run and bootstrap authenticates again.
+  const owned = sameWorkspaceOwner(ownerId, accountSubject);
+  const data = owned ? storedData : null;
+  const ranges = owned ? storedRanges : [];
+  const visibleLayers = owned ? storedLayers : DEFAULT_LAYERS;
+  const placeNotes = owned ? storedNotes : {};
+  const mapView = owned ? storedMapView : DEFAULT_MAP_VIEW;
+  const status = owned ? storedStatus : "loading";
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading();
-    loadWorkspacePreview(controller.signal).then(setData).catch((cause: unknown) => {
+    clearWorkspaceCaches();
+    setLoading(accountSubject);
+    loadWorkspacePreview(controller.signal).then((result) => {
+      if (controller.signal.aborted) return;
+      if (result.account?.subject !== accountSubject) { window.location.reload(); return; }
+      setData(result);
+    }).catch((cause: unknown) => {
       if (cause instanceof DOMException && cause.name === "AbortError") return;
+      if (redirectExpiredSession(cause)) return;
       setError(cause instanceof Error ? cause.message : "无法读取足迹工作区。");
     });
     return () => controller.abort();
-  }, [setData, setError, setLoading]);
+  }, [accountSubject, setData, setError, setLoading]);
 
   const rangeKey = JSON.stringify(ranges);
   const sourceKey = `${data?.processing.runId ?? ""}:${rangeKey}`;
@@ -151,6 +177,7 @@ export function WorkspaceShell() {
       })
       .catch((cause: unknown) => {
         if (cause instanceof DOMException && cause.name === "AbortError") return;
+        if (redirectExpiredSession(cause)) return;
         setEventError(cause instanceof Error ? cause.message : "无法读取所选时间的事件。");
       });
     return () => controller.abort();
@@ -170,6 +197,7 @@ export function WorkspaceShell() {
       if (!controller.signal.aborted) setViewportState({ sourceKey, response });
     }).catch((cause: unknown) => {
       if (cause instanceof DOMException && cause.name === "AbortError") return;
+      if (redirectExpiredSession(cause)) return;
       setViewportError(cause instanceof Error ? cause.message : "无法读取当前地图区域。");
     });
     return () => controller.abort();
@@ -233,14 +261,14 @@ export function WorkspaceShell() {
           <em>MVP</em>
         </div>
 
-        <button className="view-switcher" type="button">
+        <button className="view-switcher" type="button" onClick={() => window.location.assign("/library")}>
           <span className={`status-dot ${status}`} />
-          {data?.dataset.name ?? "本地足迹"}
+          {data?.dataset.name ?? "个人足迹"}
           <ChevronDown size={14} />
         </button>
 
         <div className="topbar-center">
-          <button className="date-control" type="button" onClick={() => setEditingRange(0)}>
+          <button className="date-control" type="button" disabled={!ranges.length} onClick={() => setEditingRange(0)}>
             <CalendarRange size={15} />
             <span>{ranges.length > 1 ? `${ranges.length} 个不连续区间` : ranges[0] ? `${formatInstant(ranges[0].start)} — ${formatInstant(ranges[0].end)}` : "选择时间"}</span>
             <ChevronDown size={13} />
@@ -255,7 +283,7 @@ export function WorkspaceShell() {
         <div className="topbar-actions">
           <span className="sync-state"><Cloud size={14} />视图已保存在本机</span>
           <button className="icon-button" type="button" aria-label="帮助"><CircleHelp size={16} /></button>
-          <button className="avatar" type="button">RF</button>
+          <button className="avatar" type="button" aria-label="管理账号与足迹" onClick={() => window.location.assign("/library")}>RF</button>
         </div>
       </header>
 
@@ -295,7 +323,7 @@ export function WorkspaceShell() {
           <div className="dataset-icon"><Database size={16} /></div>
           <div>
             <strong>{data?.dataset.name ?? "正在读取"}</strong>
-            <span>{data ? `${data.dataset.pointCount.toLocaleString("zh-CN")} 个原始观测` : "本地私有数据"}</span>
+            <span>{data ? `${data.dataset.pointCount.toLocaleString("zh-CN")} 个唯一观测` : "仅当前账号可见"}</span>
           </div>
           <span className={`ready-badge ${status}`}>
             {status === "loading" ? <LoaderCircle size={11} className="spin" /> : status === "error" ? <AlertTriangle size={11} /> : <Check size={11} />}
@@ -322,7 +350,7 @@ export function WorkspaceShell() {
         </section>
 
         <section className="panel-section slices-section" id="time-slices">
-          <div className="section-title"><span>时间切片</span><button type="button" onClick={() => { addRange(); setEditingRange(0); }}><Plus size={14} />添加区间</button></div>
+          <div className="section-title"><span>时间切片</span><button type="button" disabled={!ranges.length} onClick={() => { addRange(); setEditingRange(0); }}><Plus size={14} />添加区间</button></div>
           <div className="range-list">
             {ranges.map((range, index) => (
               <TimeRangePicker
@@ -366,6 +394,11 @@ export function WorkspaceShell() {
           />
         ) : <div className="map-loading">{status === "error" ? "足迹尚未载入" : "正在读取真实足迹…"}</div>}
         <div className="map-vignette" />
+        {data?.library?.state === "empty" && <div className="workspace-empty">
+          <Database size={26} strokeWidth={1.4} /><h2>把走过的地方，带到地图上。</h2>
+          <p>加入原始 CSV，处理完成后就能查看自己的轨迹和常去地点。已有上传时，可以到足迹库查看进度。</p>
+          <Link href="/library">导入与管理足迹</Link>
+        </div>}
         {(viewportError || eventError) && status !== "error" && (
           <div className="workspace-error" role="alert">
             <AlertTriangle size={18} />
@@ -385,7 +418,7 @@ export function WorkspaceShell() {
         {status === "error" && (
           <div className="workspace-error" role="alert">
             <AlertTriangle size={18} />
-            <div><strong>本地足迹尚未就绪</strong><span>{error}</span><code>routefrom-preview data/raw/你的导出.csv</code></div>
+            <div><strong>个人足迹暂时无法读取</strong><span>{error}</span><button type="button" onClick={() => window.location.reload()}>重新读取</button><Link href="/library">查看足迹库</Link></div>
           </div>
         )}
       </section>

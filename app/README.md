@@ -2,32 +2,29 @@
 
 RouteFrom 是一个以地图为中心的个人足迹工作台，使用 Next.js 16、React 19、TypeScript、MapLibre GL、Zustand 和 Motion。
 
-当前 MVP 已接入本地真实处理结果，支持：
+当前网站已接入账号的 PostgreSQL/PostGIS 已发布处理结果，支持：
 
 - 在 MapLibre 地图上显示确认轨迹、静止事件、未知缺口和常去地点；
 - 创建、删除和编辑任意多个不连续时间区间，区间之间绝不连线；
-- 地图、所选统计、证据检查器和 Canvas 时间地层共享同一选择；
-- 时间游标播放，并在不连续区间之间明确跳转；
-- 将时间区间、图层开关和地图相机保存在浏览器本地。
+- 地图、所选统计和证据检查器共享同一选择；
+- `/library` 多份 CSV 上传、冲突选择、撤销/恢复和后台任务进度；
+- 账号隔离的本地时间区间、图层开关、地图相机与地点备注。
 
-## 准备本地预览数据
+## 配置个人足迹库
 
-预览文件来自处理器输出，不包含在 Git 中。先在仓库根目录安装处理器并导出私有预览：
+复制 `app/.env.example` 为 `app/.env.local`，填入数据库连接、认证密钥和站点地址；根目录 `.env.local` 为后台与迁移提供对应配置。真实配置不能提交到 Git。网页使用池化连接，迁移和后台使用直连。两个服务必须共享私有持久目录 `FOOTPRINT_DATA_DIR`。
+
+先在仓库根目录安装处理器，执行迁移，再启动后台（环境变量需通过你的启动器加载，不要把连接串写进命令）：
 
 ```powershell
 python -m pip install -e .\processor
-routefrom-preview "C:\private\linggan.csv" `
-  --output ".\data\generated\workspace-preview.json"
+python -m routefrom_pipeline.database.migrate
+python -m routefrom_pipeline.library_worker --data-dir "C:\private\routefrom-data"
 ```
 
-复制 `.env.example` 为 `.env.local`，开启仅供本机使用的数据端点，并填入预览文件的绝对路径：
+网站主页要求登录，注册后默认空库；不会显示本机旧 JSON 或其他账号的数据。到 `/library` 上传原始 CSV，后台处理成功后原子发布地图。待决冲突或失败不会替换上一版。
 
-```dotenv
-ROUTEFROM_ENABLE_LOCAL_DATA_API=true
-ROUTEFROM_LOCAL_PREVIEW_PATH=C:/path/to/routefrom/data/generated/workspace-preview.json
-```
-
-本地 API 只读取服务端环境变量配置的 JSON 文件，不把 CSV 路径或数据库连接串发给浏览器。它没有用户认证，因此默认关闭，不应直接部署到公网。启动接口只发送工作区元数据和常去地点；时间线事件按所选时间区间请求，轨迹按当前地图视野、时间区间和缩放精度请求。平移时复用已经加载的邻近区域，超出范围才补载。
+启动接口只发送当前账号的元数据和地点，不下载所有轨迹；事件按所选时间请求，轨迹按视野、时间区间和缩放精度请求。邻近地图区域可复用缓存，切换账号会清空缓存；选定时间的完整距离与聚焦范围不随地图平移改变。旧预览导出命令仍可用于离线算法审计，不再作为网站数据源。
 
 ## 本地运行
 
@@ -36,7 +33,7 @@ corepack pnpm install
 corepack pnpm dev
 ```
 
-访问 `http://localhost:3000`。验证命令：
+访问配置的站点地址，默认 `http://127.0.0.1:3000`；它须与 `BETTER_AUTH_URL` 一致。验证命令（在 `app/` 中）：
 
 ```powershell
 corepack pnpm test
@@ -49,8 +46,20 @@ corepack pnpm audit:geometry
 
 MapLibre 6 的 GeoJSON 处理依赖独立 Worker。`dev` 和 `build` 会先从已安装的包复制 Worker、共享模块和许可证到 `public/maplibre/<版本>/`，地图运行时显式配置该地址。不要绕过准备脚本直接运行 `next dev`，也不要仅复制 Worker 而漏掉其共享模块。生成资源不入 Git；`test:worker` 校验版本一致性并实际启动发布的 Worker、建立轨迹索引，防止“有底图和统计但无轨迹”的回归。
 
-当前本地预览文件可保留最多 15 万个轨迹顶点及其嵌套重要度，但浏览器按地图视野、时间范围和缩放精度请求。默认不再使用会压坏曲线的固定 1.2 万点截断；处理器和视野裁剪均按最大几何偏离量保点。普通移动、两观测点相距至少 500 m 的稀疏连接、航空／高速候选分层；稀疏连接默认以低对比度虚线显示，高速候选默认隐藏，均可手动切换。确认距离仍统计完整时间选择。轨迹由 MapLibre/WebGL 绘制，不再逐帧在 Canvas 上重新投影。deck.gl 二进制图层、热力图、聚合图层、百万点性能和完整服务端工作区 API 留到下一阶段。
+轨迹块使用 PostGIS 空间与时间索引筛选，再按几何重要度和缩放精度控制返回量；时间边界与语义锚点不能为点数预算被删除。普通移动、相距至少 500 m 的稀疏连接、航空／高速候选分层；静止事件、高速候选默认隐藏。重复经过的路线聚合加粗，附近地点在显示层合并。MapLibre/WebGL 保留三维地球、平面街道且无立体建筑。deck.gl、热力图及百万点性能仍未完成。
 
-未知缺口始终保留在时间线与检查器，但地图不会把所有缺口的两端直接连起来。只有处理器独立判为可展示的局部路线推测才出现在“推测连接”虚线层；同地候选只在检查器中解释，不计入确认距离。私有预览的该字段是兼容旧文件的可选扩展；旧文件没有推测数据时，不会回退到“缺口直接连线”。
+地图不会把缺口两端直接连起来。只有处理器判为可展示且完整落入某个选定区间的局部路线推测才出现在虚线层，不计入确认距离。
 
 短时定位漂移、速度矛盾造成的连续性问题与长时间未采样分别解释；检查器不会把前者笼统说成手机没带或关机。
+
+真实 HTTP/worker 验收仅写入 `routefrom_integration*` 独立测试库的临时账号与文件，退出时清理。先构建，启用测试后运行：
+
+```powershell
+$env:ROUTEFROM_RUN_DATABASE_TESTS='true'
+$env:ROUTEFROM_HTTP_VERBOSE='true'
+node --env-file=.env.local --test scripts/library-http-integration.test.mjs
+```
+
+设置 `ROUTEFROM_RUN_BROWSER_TESTS=true` 可额外使用 Playwright + 已安装的 Microsoft Edge 在隔离浏览器中验收地图，截图留在忽略目录 `artifacts/`。端口 3100 必须空闲。地点备注/配置的服务端保存、CSV 导出、完整备份恢复、全量性能和公网部署仍待完成，进度见 `docs/WEB_DATA_LIBRARY.md`。
+
+只验收浏览器时可设置 `ROUTEFROM_BROWSER_SMOKE_ONLY=true`，使用两份短合成数据；它不执行完整导入生命周期，不能代替上面的全流程验收。

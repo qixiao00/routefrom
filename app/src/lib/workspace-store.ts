@@ -5,6 +5,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { normalizeTimeRanges, type TimeRange } from "./workspace-query";
 import type { WorkspacePreview } from "./workspace-data";
+import { DEFAULT_LAYERS, DEFAULT_MAP_VIEW, normalizeSavedWorkspaceView, sameWorkspaceOwner } from "./workspace-session";
 
 export type LayerId = "track" | "sparse" | "highSpeed" | "stays" | "gaps" | "places";
 export type SelectionKind = "stay" | "gap" | "trip" | "place" | "leg";
@@ -18,6 +19,7 @@ export interface MapView {
 }
 
 interface WorkspaceState {
+  ownerId: string | null;
   status: "idle" | "loading" | "ready" | "error";
   error: string | null;
   data: WorkspacePreview | null;
@@ -27,7 +29,7 @@ interface WorkspaceState {
   placeNotes: Record<string, string>;
   selection: { kind: SelectionKind; id: string } | null;
   mapView: MapView;
-  setLoading: () => void;
+  setLoading: (ownerId: string) => void;
   setData: (data: WorkspacePreview) => void;
   setError: (message: string) => void;
   toggleLayer: (layer: LayerId) => void;
@@ -40,38 +42,41 @@ interface WorkspaceState {
   setMapView: (view: MapView) => void;
 }
 
-const initialMapView: MapView = {
-  longitude: 112.98,
-  latitude: 28.2,
-  zoom: 10,
-  pitch: 32,
-  bearing: 0,
-};
+const initialMapView: MapView = DEFAULT_MAP_VIEW;
 
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set, get) => ({
+      ownerId: null,
       status: "idle",
       error: null,
       data: null,
       viewRunId: null,
       ranges: [],
-      visibleLayers: { track: true, sparse: true, highSpeed: false, stays: false, gaps: true, places: true },
+      visibleLayers: { ...DEFAULT_LAYERS },
       placeNotes: {},
       selection: null,
       mapView: initialMapView,
-      setLoading: () => set({ status: "loading", error: null }),
+      setLoading: (ownerId) => set((state) => ({ status: "loading", error: null, data: null, selection: null,
+        ...(sameWorkspaceOwner(state.ownerId, ownerId) ? {} : { ownerId, viewRunId: null, ranges: [],
+          visibleLayers: { ...DEFAULT_LAYERS }, placeNotes: {}, mapView: { ...initialMapView } }),
+      })),
       setData: (data) =>
         set((state) => {
-          const sameRun = state.viewRunId === data.processing.runId;
+          const ownerId = data.account?.subject ?? data.account?.id ?? null;
+          const sameOwner = sameWorkspaceOwner(state.ownerId, ownerId);
+          const sameRun = sameOwner && state.viewRunId === data.processing.runId;
           return {
             data,
+            ownerId,
             viewRunId: data.processing.runId,
             status: "ready",
             error: null,
-            ranges: sameRun && state.ranges.length > 0 ? state.ranges : data.suggestedRanges,
-            mapView: sameRun ? state.mapView : data.suggestedMapView ?? initialMapView,
+            ranges: data.library?.state === "empty" ? [] : sameOwner && state.ranges.length > 0 ? state.ranges : data.suggestedRanges,
+            mapView: sameOwner && state.ranges.length > 0 ? state.mapView : data.suggestedMapView ?? initialMapView,
             selection: sameRun ? state.selection : null,
+            visibleLayers: sameOwner ? state.visibleLayers : { ...DEFAULT_LAYERS },
+            placeNotes: sameOwner ? state.placeNotes : {},
           };
         }),
       setError: (message) => set({ status: "error", error: message }),
@@ -126,29 +131,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     }),
     {
       name: "routefrom-workspace-view-v1",
-      version: 1,
-      migrate: (persisted, version) => {
-        const saved = persisted && typeof persisted === "object" ? persisted as Partial<WorkspaceState> : {};
-        return version < 1
-          ? { ...saved, visibleLayers: { ...saved.visibleLayers, stays: false } }
-          : saved;
-      },
+      version: 2,
+      migrate: (persisted) => normalizeSavedWorkspaceView(persisted),
       storage: createJSONStorage(() => localStorage),
       merge: (persisted, current) => {
-        const saved = persisted && typeof persisted === "object"
-          ? persisted as Partial<WorkspaceState>
-          : {};
-        return {
-          ...current,
-          ...saved,
-          visibleLayers: {
-            ...current.visibleLayers,
-            ...(saved.visibleLayers && typeof saved.visibleLayers === "object" ? saved.visibleLayers : {}),
-          },
-          placeNotes: saved.placeNotes && typeof saved.placeNotes === "object" ? saved.placeNotes : {},
-        };
+        return { ...current, ...normalizeSavedWorkspaceView(persisted) };
       },
       partialize: (state) => ({
+        ownerId: state.ownerId,
         viewRunId: state.viewRunId,
         ranges: state.ranges,
         visibleLayers: state.visibleLayers,

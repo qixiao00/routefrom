@@ -18,13 +18,25 @@ class DatabaseMigrationTests(unittest.TestCase):
     def test_migration_numbers_are_contiguous(self) -> None:
         numbers = [int(path.name.split("_", 1)[0]) for path in self.migrations]
 
-        self.assertEqual(numbers, list(range(1, 16)))
+        self.assertEqual(numbers, list(range(1, 17)))
 
     def test_every_migration_parses_as_postgresql(self) -> None:
         for path in self.migrations:
             with self.subTest(path=path.name):
                 statements = parse_sql(path.read_text(encoding="utf-8"))
                 self.assertGreater(len(statements), 0)
+
+    def test_workspace_sql_templates_parse_as_postgresql(self) -> None:
+        # Catch reserved-word aliases before they reach a real map request.
+        for name in ("workspace-bootstrap.ts", "workspace-viewport.ts", "workspace-events.ts"):
+            source = (self.repo_root / "app" / "src" / "server" / name).read_text(encoding="utf-8")
+            queries = re.findall(r"(?:sql|getDatabase\(\))`([\s\S]*?)`", source)
+            self.assertGreater(len(queries), 0, name)
+            for query in queries:
+                with self.subTest(file=name, query=query[:60]):
+                    parameters = iter(range(1, 100))
+                    statement = re.sub(r"\$\{[^}]*\}", lambda _: f"${next(parameters)}", query)
+                    self.assertGreater(len(parse_sql(statement)), 0)
 
     def test_algorithm_tables_are_versioned_by_processing_run(self) -> None:
         expected_tables = {

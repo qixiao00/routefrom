@@ -33,6 +33,7 @@ export async function requireAuthenticatedUser(request: Request) {
   ` as { id: string; display_name: string; timezone: string }[];
   return {
     id: String(rows[0].id),
+    subject: session.user.id,
     name: String(rows[0].display_name),
     timezone: String(rows[0].timezone),
   };
