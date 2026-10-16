@@ -6,6 +6,7 @@ import math
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TextIO
 
 from routefrom_pipeline.model import CsvProfile, NormalizedLocationPoint
 
@@ -177,17 +178,22 @@ def _parse_row(row: dict[str, str], row_number: int) -> NormalizedLocationPoint:
 def iter_linggan_csv(path: str | Path) -> Iterator[NormalizedLocationPoint]:
     csv_path = Path(path)
     with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        if reader.fieldnames is None:
-            raise LingganCsvError("CSV has no header")
-        if tuple(reader.fieldnames) != EXPECTED_COLUMNS:
-            raise LingganCsvError(
-                f"unexpected CSV columns: expected {EXPECTED_COLUMNS!r}, got {tuple(reader.fieldnames)!r}"
-            )
-        for source_row_number, row in enumerate(reader, start=2):
-            if None in row or any(value is None for value in row.values()):
-                raise LingganCsvError(f"row {source_row_number}: unexpected number of columns")
-            yield _parse_row(row, source_row_number)
+        yield from iter_linggan_stream(handle)
+
+
+def iter_linggan_stream(handle: TextIO) -> Iterator[NormalizedLocationPoint]:
+    """Same parser for private files and verified ZIP entry streams; never extract paths."""
+    reader = csv.DictReader(handle)
+    if reader.fieldnames is None:
+        raise LingganCsvError("CSV has no header")
+    if tuple(reader.fieldnames) != EXPECTED_COLUMNS:
+        raise LingganCsvError(
+            f"unexpected CSV columns: expected {EXPECTED_COLUMNS!r}, got {tuple(reader.fieldnames)!r}"
+        )
+    for source_row_number, row in enumerate(reader, start=2):
+        if None in row or any(value is None for value in row.values()):
+            raise LingganCsvError(f"row {source_row_number}: unexpected number of columns")
+        yield _parse_row(row, source_row_number)
 
 
 def _sha256(path: Path) -> str:

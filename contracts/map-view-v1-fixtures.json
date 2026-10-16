@@ -1,0 +1,35 @@
+{
+  "base": {
+    "schemaVersion": 1,
+    "map": {
+      "projection": "globe",
+      "style": "openfreemap-dark-v1",
+      "terrain": false,
+      "buildings": false,
+      "camera": { "longitude": 105, "latitude": 28, "zoom": 1.5, "pitch": 0, "bearing": 0 }
+    },
+    "ranges": [
+      { "start": "2026-01-01T03:00:01Z", "end": "2026-01-01T03:01:02Z" },
+      { "start": "2026-05-05T02:03:00+08:00", "end": "2026-05-05T08:03:00+08:00" }
+    ],
+    "visibleLayers": { "track": true, "sparse": true, "highSpeed": false, "stays": false, "gaps": true, "places": true },
+    "panels": { "layers": true, "inspector": false }
+  },
+  "cases": [
+    { "path": ["ranges"], "value": [], "valid": true },
+    { "path": ["map", "camera", "bearing"], "value": 360, "valid": true },
+    { "path": ["schemaVersion"], "value": true, "valid": false },
+    { "path": ["schemaVersion"], "value": 2, "valid": false },
+    { "path": ["map", "camera", "zoom"], "value": 25, "valid": false },
+    { "path": ["map", "camera", "latitude"], "value": -91, "valid": false },
+    { "path": ["map", "camera", "pitch"], "value": 86, "valid": false },
+    { "path": ["map", "projection"], "value": "mercator", "valid": false },
+    { "path": ["map", "buildings"], "value": true, "valid": false },
+    { "path": ["map", "style"], "value": "untrusted-style", "valid": false },
+    { "path": ["visibleLayers", "stays"], "value": 1, "valid": false },
+    { "path": ["panels", "inspector"], "value": "true", "valid": false },
+    { "path": ["ranges", 0, "start"], "value": "2026-01-01T00:00:00", "valid": false },
+    { "path": ["ranges", 0, "end"], "value": "2026-01-01T03:00:01Z", "valid": false },
+    { "path": ["ownerId"], "value": "must-not-be-restored", "valid": false }
+  ]
+}

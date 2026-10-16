@@ -5,7 +5,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import threading
 import time
 from contextlib import contextmanager
@@ -19,6 +18,7 @@ from routefrom_pipeline.database.lineage import persist_library_lineage
 from routefrom_pipeline.database.postgres import persist_processed_trace
 from routefrom_pipeline.ingest.export_csv import write_linggan_csv
 from routefrom_pipeline.pipeline import process_trace
+from routefrom_pipeline.private_storage import private_csv_path as private_path
 
 if TYPE_CHECKING:
     import psycopg
@@ -26,16 +26,6 @@ if TYPE_CHECKING:
 
 class LeaseLostError(RuntimeError):
     pass
-
-
-def private_path(root: Path, key: str) -> Path:
-    if not re.fullmatch(r"(?:raw|generated)/[0-9a-f-]{36}/[0-9a-f-]{36}\.csv", key):
-        raise ValueError("invalid private source key")
-    root = root.resolve()
-    target = (root / key).resolve()
-    if not target.is_relative_to(root):
-        raise ValueError("source escapes the private data directory")
-    return target
 
 
 def claim_job(connection: psycopg.Connection, *, library_id=None):
