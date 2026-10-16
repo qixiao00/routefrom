@@ -422,3 +422,15 @@ kbd { display: flex; align-items: center; gap: 2px; padding: 2px 5px; border: 1p
 @media (max-width: 960px) { .library-columns { grid-template-columns: minmax(0, 1fr) 270px; gap: 22px; } .library-content { padding-top: 32px; } .library-upload { padding: 20px; } .library-upload .library-primary { margin-left: 42px; } }
 @media (max-width: 760px) { .library-columns { grid-template-columns: minmax(0, 1fr); } .library-side { display: grid; grid-template-columns: minmax(0, 1fr); } .library-title-row { align-items: flex-start; } .library-content { width: calc(100% - 32px); padding-top: 28px; } .library-topbar { padding: 0 16px; gap: 14px; } .library-location { padding-left: 14px; } .library-title-row h1 { font-size: 26px; } .library-section-heading h2 { flex-wrap: wrap; } .library-conflicts { padding: 18px; } }
 @media (max-width: 480px) { .library-location { display: none; } .library-title-row { flex-wrap: wrap; gap: 16px; margin-bottom: 24px; } .library-account > span { max-width: 120px; } .library-file { flex-wrap: wrap; gap: 10px; } .library-file-info { flex-basis: calc(100% - 32px); } .library-file-actions { width: 100%; display: flex; justify-content: space-between; align-items: flex-start; padding-left: 29px; } .library-withdraw-confirm { width: auto; max-width: 200px; } .library-message { flex-wrap: wrap; } .library-conflict-fields em { max-width: 60px; line-height: 1.7; } .library-upload { padding: 18px; } }
+/* CSV export keeps the map's compact instrument-panel language. */
+.csv-export-options { border: 0; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
+.csv-export-options legend { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.csv-export-options label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; padding: 12px; border: 1px solid var(--line-strong); border-radius: 9px; }
+.csv-export-options label:has(input:checked) { background: rgba(116, 156, 243, .08); border-color: rgba(116, 156, 243, .4); }
+.csv-export-options input { accent-color: #749cf3; margin-top: 3px; }
+.csv-export-options strong, .csv-export-options small { display: block; }
+.csv-export-options strong { font-size: 12px; font-weight: 500; }
+.csv-export-options small { font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 5px; }
+.csv-export-download { display: flex; justify-content: center; align-items: center; gap: 7px; width: 100%; min-height: 38px; border: 1px solid rgba(116, 156, 243, .4); background: rgba(116, 156, 243, .12); color: #b9ceff; border-radius: 8px; font-size: 12px; cursor: pointer; }
+.csv-export-download:disabled { opacity: .5; cursor: wait; }
+.csv-export-download:focus-visible, .csv-export-options input:focus-visible { outline: 2px solid #749cf3; outline-offset: 3px; }

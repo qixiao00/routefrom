@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, ArrowUpRight, Check, FileText, LoaderCircle, LogOut, RefreshCw, Route, Upload, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowUpRight, Check, Download, FileText, LoaderCircle, LogOut, RefreshCw, Route, Upload, Undo2 } from "lucide-react";
+import { prepareCsvDownload, startCsvDownload } from "@/lib/csv-export-client";
 import { authClient } from "@/lib/auth-client";
 import { changeLibraryFile, fileCoverage, jobStageLabel, jobStatusLabel, LibraryApiError, loadLibrary, updateLibraryJob,
   uploadLibraryFile, validConflictDecisions, type LibraryJob, type LibraryOverview } from "@/lib/library-client";
@@ -170,6 +171,10 @@ export function LibraryManager() {
                   {latest && busyJob(latest) && <p className="library-file-pending">{jobStageLabel(latest.stage)} · 旧地图仍可查看</p>}
                 </div>
                 <div className="library-file-actions"><span className={`library-badge ${withdrawn ? "muted" : "ready"}`}>{withdrawn ? "已撤销" : "已加入"}</span>
+                  <button className="library-text-button" type="button" disabled={!!pending} onClick={() => void operate(`download-${file.id}`, async () => {
+                    const url = await prepareCsvDownload(data.user.subject, { fileId: file.id });
+                    if (alive.current && !navigating.current) startCsvDownload(url);
+                  }, "已交给浏览器下载原始 CSV，请查看下载列表。源文本保持不变，请勿启用表格公式。")}><Download size={13} />下载原始 CSV</button>
                   {confirmWithdraw === file.id ? <div className="library-withdraw-confirm"><span>原文件会保留，共有观测不会移除。</span>
                     <button type="button" disabled={!!pending} onClick={() => void operate(file.id, () => changeLibraryFile(file.id, "withdraw"), "文件已撤销，后台将重新计算足迹；原始记录仍保留。")}>确认撤销</button>
                     <button type="button" disabled={!!pending} onClick={() => setConfirmWithdraw(null)}>取消</button></div>

@@ -30,7 +30,7 @@ export interface LibraryJob {
 }
 
 export interface LibraryOverview {
-  user: { id: string; name: string; timezone: string };
+  user: { id: string; subject: string; name: string; timezone: string };
   library: { id: string; name: string; revision: string | number; active_snapshot_id: string | null };
   published: { revision: number | string; point_count: number | string; published_at: string } | null;
   files: LibraryFile[];

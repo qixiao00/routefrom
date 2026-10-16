@@ -38,6 +38,16 @@ class DatabaseMigrationTests(unittest.TestCase):
                     statement = re.sub(r"\$\{[^}]*\}", lambda _: f"${next(parameters)}", query)
                     self.assertGreater(len(parse_sql(statement)), 0)
 
+    def test_csv_export_sql_templates_parse_as_postgresql(self) -> None:
+        source = (self.repo_root / "app" / "src" / "server" / "csv-exports.ts").read_text(encoding="utf-8")
+        queries = re.findall(r"`(\s*SELECT[\s\S]*?)`", source)
+        self.assertEqual(len(queries), 5)
+        for query in queries:
+            with self.subTest(query=query[:80]):
+                parameters = iter(range(10, 100))
+                statement = re.sub(r"\$\{[^}]*\}", lambda _: f"${next(parameters)}", query)
+                self.assertGreater(len(parse_sql(statement)), 0)
+
     def test_algorithm_tables_are_versioned_by_processing_run(self) -> None:
         expected_tables = {
             "point_assessments",

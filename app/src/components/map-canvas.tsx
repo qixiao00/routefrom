@@ -9,6 +9,7 @@ import { buildTrackGeoJSON } from "@/lib/map-track-data";
 import { buildPlaceGeoJSON } from "@/lib/map-place-data";
 import { placeDisplayName, placeNoteKey } from "@/lib/place-notes";
 import { mapCamerasMatch } from "@/lib/map-view-config";
+import { queueCameraFrame } from "@/lib/map-camera-request";
 
 import type {
   PreviewInferredConnection,
@@ -155,7 +156,7 @@ export function MapCanvas({
   }, [visibleLayers]);
 
   const fitSelection = useCallback(() => {
-    if (!mapRef.current || !selectedBounds) return;
+    if (!mapRef.current || !selectedBounds) return false;
     mapRef.current.fitBounds(
       [
         [selectedBounds[0], selectedBounds[1]],
@@ -163,6 +164,7 @@ export function MapCanvas({
       ],
       { padding: { top: 80, right: 80, bottom: 120, left: 80 }, duration: 850, maxZoom: 14 },
     );
+    return true;
   }, [selectedBounds]);
 
   const reportViewport = useCallback(() => {
@@ -198,13 +200,9 @@ export function MapCanvas({
   }, [reportViewport]);
 
   useEffect(() => {
-    if (fitRequest === 0 || fitRequest === handledFitRequest.current || !selectedBounds) return;
-    handledFitRequest.current = fitRequest;
-    const frame = requestAnimationFrame(fitSelection);
-    return () => {
-      cancelAnimationFrame(frame);
-    };
-  }, [fitRequest, fitSelection, selectedBounds]);
+    if (!mapReady || !selectedBounds) return;
+    return queueCameraFrame(fitRequest, handledFitRequest, fitSelection);
+  }, [fitRequest, fitSelection, selectedBounds, mapReady]);
 
   useEffect(() => {
     if (globeRequest === 0 || globeRequest === handledGlobeRequest.current) return;

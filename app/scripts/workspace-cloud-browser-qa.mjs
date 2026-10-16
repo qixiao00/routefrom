@@ -7,6 +7,16 @@ export async function verifyCloudViewsBrowser({ browser, page, context, login, a
   const track = page.getByRole("button", { name: /^观测轨迹/ });
   const openViews = async target => { await target.getByRole("button", { name: "地图视图与同步", exact: true }).click(); };
   const checkpoint = label => { if (process.env.ROUTEFROM_HTTP_VERBOSE === "true") console.log(`Cloud browser checkpoint: ${label}`); };
+  // A transient database/network failure deliberately freezes automatic writes.
+  // Exercise the user's explicit recovery, never bypass CAS or reset revisions.
+  await expect.poll(async () => /视图已保存到账号|视图未同步|视图版本冲突/.test(await sync.innerText()), { timeout: 30_000 }).toBe(true);
+  if ((await sync.innerText()).includes("视图未同步")) {
+    await openViews(page);
+    await page.getByRole("button", { name: "读取账号视图", exact: true }).click();
+    await page.getByRole("button", { name: "保存当前本地视图", exact: true }).click();
+    await page.keyboard.press("Escape");
+    checkpoint("initial transient failure recovered through explicit account reread and local-view choice");
+  }
   await expect(sync).toContainText("视图已保存到账号", { timeout: 30_000 });
   checkpoint("initial account view ready");
   await page.getByRole("button", { name: "隐藏检查器", exact: true }).click();

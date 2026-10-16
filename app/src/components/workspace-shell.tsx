@@ -54,6 +54,7 @@ import { type LayerId, useWorkspaceStore } from "@/lib/workspace-store";
 import { TimeRangePicker } from "./time-range-picker";
 import { MapViewsControl } from "./map-views-control";
 import { PlaceNotesControl } from "./place-notes-control";
+import { CsvExportControl } from "./csv-export-control";
 import { usePlaceNotes } from "./use-place-notes";
 
 const MapCanvas = dynamic(() => import("./map-canvas").then((module) => module.MapCanvas), {
@@ -293,6 +294,9 @@ export function WorkspaceShell({ accountSubject }: { accountSubject: string }) {
         </div>
 
         <div className="topbar-actions">
+          <CsvExportControl key={`exports-${accountSubject}`} subject={accountSubject} selection={owned && status === "ready" && data?.processing.runId ? {
+            datasetId: data.dataset.id, processingRunId: data.processing.runId, timeSelection: { timezone: data.account?.timezone ?? "Asia/Shanghai", ranges },
+          } : null} />
           <MapViewsControl key={accountSubject} accountSubject={accountSubject} ready={owned && status === "ready"} />
           <PlaceNotesControl key={`notes-${accountSubject}`} subject={accountSubject} ready={owned && status === "ready"} places={viewData?.places ?? []} notes={cloudNotes} legacyNotes={placeNotes} />
           <button className="icon-button inspector-toggle" type="button" aria-label={panels.inspector ? "隐藏检查器" : "显示检查器"}

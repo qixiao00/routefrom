@@ -47,9 +47,14 @@ export async function verifyWorkspaceBrowser({ baseURL, accounts, richEntries })
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" });
   const page = await context.newPage();
   const errors = [];
+  const failures = [];
   let geometry = null;
-  page.on("pageerror", error => errors.push(error.message));
+  page.on("pageerror", error => errors.push(error.stack || error.message));
   page.on("response", async response => {
+    if (response.url().includes("/api/") && response.status() >= 400) {
+      const body = await response.json().catch(() => null);
+      failures.push({ path: new URL(response.url()).pathname, method: response.request().method(), status: response.status(), code: body?.error?.code });
+    }
     if (!response.url().endsWith("/api/workspace/viewport") || !response.ok()) return;
     try { geometry = await response.json(); } catch { /* cancelled when the camera changes */ }
   });
@@ -85,6 +90,45 @@ export async function verifyWorkspaceBrowser({ baseURL, accounts, richEntries })
     const directory = path.resolve("../artifacts");
     await mkdir(directory, { recursive: true });
     await page.screenshot({ path: path.join(directory, "personal-workspace-qa.png"), fullPage: true });
+    // Actual native browser download; no fetch Blob or simulated click handler.
+    await page.getByRole("button", { name: "导出足迹 CSV", exact: true }).click();
+    await expect(page.locator(".csv-export-panel")).toContainText("不受地图视野或缩放影响");
+    await page.route("**/api/library/export?**", route => route.request().method() === "HEAD"
+      ? route.fulfill({ status: 503, headers: { "x-routefrom-export-error": "export_unavailable" } }) : route.continue());
+    await page.getByRole("button", { name: "下载当前时间选择", exact: true }).click();
+    await expect(page.locator(".csv-export-panel [role=alert]")).toBeVisible();
+    await page.unroute("**/api/library/export?**");
+    const readDownload = async promise => {
+      const download = await promise; assert.equal(await download.failure(), null);
+      const stream = await download.createReadStream(); const chunks = [];
+      for await (const chunk of stream) chunks.push(chunk);
+      return { name: download.suggestedFilename(), text: Buffer.concat(chunks).toString("utf8") };
+    };
+    let pendingDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "下载当前时间选择", exact: true }).click();
+    const mergedCsv = await readDownload(pendingDownload);
+    assert.match(mergedCsv.name, /^routefrom-observations-/);
+    assert.equal(mergedCsv.text.trim().split(/\r?\n/).length, richEntries + 1);
+    await page.getByLabel("去噪 GPS 轨迹", { exact: false }).check();
+    pendingDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "下载当前时间选择", exact: true }).click();
+    const cleanedCsv = await readDownload(pendingDownload);
+    assert.match(cleanedCsv.name, /^routefrom-cleaned_gps-/);
+    assert.match(cleanedCsv.text.split("\r\n")[0], /selectionRangeIndex,segmentIndex/);
+    await page.screenshot({ path: path.join(directory, "csv-export-qa.png"), fullPage: true });
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "管理账号与足迹", exact: true }).click();
+    await expect(page.getByRole("button", { name: "下载原始 CSV", exact: true })).toHaveCount(1);
+    pendingDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "下载原始 CSV", exact: true }).click();
+    const originalCsv = await readDownload(pendingDownload);
+    assert.equal(originalCsv.name, "algorithm-map-fixture.csv");
+    assert.equal(originalCsv.text.trim().split(/\r?\n/).length, richEntries + 1);
+    await page.screenshot({ path: path.join(directory, "library-csv-export-qa.png"), fullPage: true });
+    await page.getByRole("link", { name: "回到地图", exact: true }).click();
+    await expect(page.locator(".maplibregl-canvas")).toBeVisible();
+    await page.getByRole("button", { name: "聚焦可见轨迹", exact: true }).click();
+    await expect.poll(async () => mintPixels(await page.locator(".maplibregl-canvas").screenshot()), { timeout: 20_000 }).toBeGreaterThan(20);
     // Right-click a real blue point on the rendered map, not a simulated handler.
     const box = await canvas.boundingBox();
     // This synthetic horizontal route has its place at the route midpoint.
@@ -138,7 +182,7 @@ export async function verifyWorkspaceBrowser({ baseURL, accounts, richEntries })
     const directory = path.resolve("../artifacts");
     await mkdir(directory, { recursive: true });
     await page.screenshot({ path: path.join(directory, "personal-workspace-qa-failed.png"), fullPage: true });
-    console.error("Browser workspace errors:", await page.locator(".workspace-error").allTextContents(), errors);
+    console.error("Browser workspace errors:", await page.locator(".workspace-error").allTextContents(), errors, failures);
     throw error;
   } finally { await context.close(); await browser.close(); }
 }

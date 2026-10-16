@@ -47,6 +47,13 @@ export async function verifyPlaceNotesHttp({ request, a, b, map, subjectA, subje
   // Model a pre-lineage published run without changing any original observations.
   await pool.query("DELETE FROM app.library_processing_inputs WHERE processing_run_id = $1 AND library_id = $2 AND user_id = $3", [recomputed.processing.runId, map.library.id, map.account.id]);
   assert.equal((await get()).lineageReady, false);
+  const legacyExport = "/api/library/export?" + new URLSearchParams({ account: subjectB, query: JSON.stringify({
+    datasetId: recomputed.dataset.id, processingRunId: recomputed.processing.runId, kind: "observations",
+    timeSelection: { timezone: "Asia/Shanghai", ranges: [{ start: recomputed.dataset.startedAt, end: recomputed.dataset.endedAt }] },
+  }) });
+  const refusedExport = await request(legacyExport, b);
+  assert.equal(refusedExport.status, 409);
+  assert.equal((await refusedExport.json()).error.code, "lineage_upgrade_required");
   assert.equal((await put({ ...body, id: note.id, revision: note.revision, runId: recomputed.processing.runId, placeId: note.placeIds[0] })).status, 409);
   const reprocess = () => request("/api/library/reprocess", b, { method: "POST", headers: { "x-routefrom-account": subjectB } });
   const queued = await (await reprocess()).json();

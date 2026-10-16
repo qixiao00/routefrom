@@ -14,17 +14,21 @@ import { Pool } from "pg";
 import { cleanupTestAccounts } from "./library-test-cleanup.mjs";
 import { verifyMapViewsHttp } from "./workspace-views-http-qa.mjs";
 import { verifyPlaceNotesHttp } from "./place-notes-http-qa.mjs";
+import { verifyCsvExports, verifyCsvParser } from "./csv-export-http-qa.mjs";
 
 const execute = promisify(execFile);
 const header = "geoTime,latitude,longitude,wgsLatitude,wgsLongitude,altitude,course,horizontalAccuracy,verticalAccuracy,speed,dayTimeMills,networkType,networkName,locationType\n";
 const csv = (entries) => header + entries.map(([time, longitude, speed = -1]) => `${time},30.9,${longitude},30.9,${longitude},50,-1,5,-1,${speed},1682006400000,0,,1\n`).join("");
 
-test(process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
+const exportValidationOnly = process.env.ROUTEFROM_EXPORT_VALIDATION_ONLY === "true";
+test(exportValidationOnly ? "CSV export validation: authenticated malformed options and stale page identity (no imports)"
+  : process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
   ? "website map: published algorithm data and isolated browser account switch (short fixture)"
   : "website library: private multipart imports, dedup, isolation, conflicts, withdrawal and restore", {
   skip: process.env.ROUTEFROM_RUN_DATABASE_TESTS !== "true",
   timeout: process.env.ROUTEFROM_BROWSER_QA === "true" ? 900_000 : 600_000,
 }, async () => {
+  verifyCsvParser();
   const database = process.env.ROUTEFROM_TEST_DATABASE || "routefrom_integration";
   assert.match(database, /^routefrom_integration/);
   const preferIpv4 = process.env.ROUTEFROM_TEST_IPV4 === "true";
@@ -123,6 +127,23 @@ test(process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
     assert.deepEqual(empty.paths, []);
     assert.deepEqual(empty.places, []);
     assert.deepEqual(empty.suggestedRanges, []);
+    if (exportValidationOnly) {
+      const query = { datasetId: "11111111-1111-4111-8111-111111111111", processingRunId: "22222222-2222-4222-8222-222222222222",
+        kind: "observations", timeSelection: { timezone: "Asia/Shanghai", ranges: [{ start: "2026-10-01T00:00:00Z", end: "2026-10-02T00:00:00Z" }] } };
+      const url = (body, subject = empty.account.subject) => "/api/library/export?" + new URLSearchParams({ account: subject, query: JSON.stringify(body) });
+      for (const kind of [["observations"], null, {}, true, "map_matched"]) {
+        for (const method of ["GET", "HEAD"]) {
+          const response = await request(url({ ...query, kind }), a, { method });
+          assert.equal(response.status, 400); assert.match(response.headers.get("cache-control"), /private.*no-store/);
+          if (method === "HEAD") assert.equal(response.headers.get("x-routefrom-export-error"), "invalid_export");
+          else assert.equal((await response.json()).error.code, "invalid_export");
+        }
+      }
+      assert.equal((await request(url(query), a)).status, 404);
+      assert.equal((await request(url(query, secondBootstrap.account.subject), a)).status, 409);
+      checkpoint("strict export kinds and stale page identity validated without importing data");
+      return;
+    }
     assert.equal((await request("/api/library/imports", a, { method: "POST", headers: { origin: "https://untrusted.example" } })).status, 403);
     const base = 1682028286912;
     const verifyViewsAfterPublication = await verifyMapViewsHttp({ request, a, b, subjectA: empty.account.subject,
@@ -300,6 +321,9 @@ test(process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
       await verifyWorkspaceBrowser({ baseURL, accounts: browserAccounts, richEntries: richEntries.length });
       checkpoint("browser map and account switch passed");
     }
+    await verifyCsvExports({ request, a, b, subjectA: empty.account.subject, subjectB: secondBootstrap.account.subject,
+      map: richMap, richEntries, csv, library, pool, base, upload, work });
+    checkpoint("CSV exports: immutable originals, slices, exact precision, multiple pages and isolation passed");
     await verifyPlaceNotesHttp({ request, a, b, map: richMap, subjectA: empty.account.subject,
       subjectB: secondBootstrap.account.subject, pool, work, upload, csv, base });
     checkpoint("place notes: exact rebinding, versions, legacy upgrade, withdrawal/restore and collisions passed");
