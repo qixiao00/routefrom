@@ -5,11 +5,21 @@ from pathlib import Path
 
 
 def private_csv_path(root: Path, key: str) -> Path:
-    if not re.fullmatch(r"(?:raw|generated)/[0-9a-f-]{36}/[0-9a-f-]{36}\.csv", key):
+    if not re.fullmatch(r"(?:raw|generated|staging)/[0-9a-f-]{36}/[0-9a-f-]{36}\.csv", key):
         raise ValueError("invalid private source key")
     canonical_root = root.resolve()
     expected = canonical_root.joinpath(*key.split("/"))
     resolved = expected.resolve()
     if resolved != expected:
         raise ValueError("private source cannot redirect to another asset")
+    return resolved
+
+
+def private_archive_path(root: Path, key: str) -> Path:
+    if not re.fullmatch(r"archives/[0-9a-f-]{36}/[0-9a-f-]{36}\.zip", key):
+        raise ValueError("invalid private archive key")
+    expected = root.resolve().joinpath(*key.split("/"))
+    resolved = expected.resolve()
+    if resolved != expected:
+        raise ValueError("private archive cannot redirect to another asset")
     return resolved

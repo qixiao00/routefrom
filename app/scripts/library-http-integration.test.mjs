@@ -3,7 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { setDefaultResultOrder } from "node:dns";
 import { lookup } from "node:dns/promises";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -21,7 +21,9 @@ const header = "geoTime,latitude,longitude,wgsLatitude,wgsLongitude,altitude,cou
 const csv = (entries) => header + entries.map(([time, longitude, speed = -1]) => `${time},30.9,${longitude},30.9,${longitude},50,-1,5,-1,${speed},1682006400000,0,,1\n`).join("");
 
 const exportValidationOnly = process.env.ROUTEFROM_EXPORT_VALIDATION_ONLY === "true";
-test(exportValidationOnly ? "CSV export validation: authenticated malformed options and stale page identity (no imports)"
+const assetPromotionOnly = process.env.ROUTEFROM_HTTP_ASSET_PROMOTION_ONLY === "true";
+test(assetPromotionOnly ? "CSV uploads: promote matching staged/generated imports into retained private originals"
+  : exportValidationOnly ? "CSV export validation: authenticated malformed options and stale page identity (no imports)"
   : process.env.ROUTEFROM_BROWSER_SMOKE_ONLY === "true"
   ? "website map: published algorithm data and isolated browser account switch (short fixture)"
   : "website library: private multipart imports, dedup, isolation, conflicts, withdrawal and restore", {
@@ -88,7 +90,7 @@ test(exportValidationOnly ? "CSV export validation: authenticated malformed opti
   };
   try {
     const version = await pool.query("SELECT max(filename) AS filename FROM routefrom_meta.schema_migrations");
-    assert.equal(version.rows[0].filename, "0019_library_place_notes.sql", "apply current migrations to the test database first");
+    assert.equal(version.rows[0].filename, "0020_library_archive_jobs.sql", "apply current migrations to the test database first");
     checkpoint("database ready");
     server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--port", "3100"],
       { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -127,6 +129,30 @@ test(exportValidationOnly ? "CSV export validation: authenticated malformed opti
     assert.deepEqual(empty.paths, []);
     assert.deepEqual(empty.places, []);
     assert.deepEqual(empty.suggestedRanges, []);
+    if (assetPromotionOnly) {
+      for (const [index, kind] of ["staging", "generated"].entries()) {
+        const first = 1682028286912 + index * 100000;
+        const contents = csv([[first, "118.7"], [first + 10000, "118.7001"]]);
+        const digest = (await import("node:crypto")).createHash("sha256").update(contents).digest("hex");
+        const key = `${kind}/${kind === "staging" ? empty.account.id : empty.library.id}/${randomUUID()}.csv`;
+        const seeded = await pool.query("INSERT INTO app.datasets(user_id,original_filename,source_object_key,source_sha256,source_size_bytes) VALUES ($1,'old-internal.csv',$2,$3,$4) RETURNING id",
+          [empty.account.id, key, digest, Buffer.byteLength(contents)]);
+        const name = `promoted-${kind}.csv`;
+        assert.equal((await upload(a, contents, name)).status, 202);
+        const stored = (await pool.query("SELECT source_object_key,original_filename FROM app.datasets WHERE id=$1", [seeded.rows[0].id])).rows[0];
+        assert.ok(stored.source_object_key.startsWith(`raw/${empty.account.id}/`));
+        assert.equal(stored.original_filename, name);
+        assert.equal(await readFile(path.join(root, ...stored.source_object_key.split("/")), "utf8"), contents);
+        await work();
+        assert.equal((await bootstrap(a)).dataset.pointCount, (index + 1) * 2);
+        const sourceFile = (await library(a)).files.find(file => file.dataset_id === seeded.rows[0].id);
+        const download = "/api/library/export?" + new URLSearchParams({ account: empty.account.subject, file: sourceFile.id });
+        assert.equal(await (await request(download, a)).text(), contents);
+        assert.equal((await (await upload(a, contents, name)).json()).reused, true);
+      }
+      checkpoint("staged/generated asset promotion, real worker publication and original download passed");
+      return;
+    }
     if (exportValidationOnly) {
       const query = { datasetId: "11111111-1111-4111-8111-111111111111", processingRunId: "22222222-2222-4222-8222-222222222222",
         kind: "observations", timeSelection: { timezone: "Asia/Shanghai", ranges: [{ start: "2026-10-01T00:00:00Z", end: "2026-10-02T00:00:00Z" }] } };

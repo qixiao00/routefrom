@@ -43,11 +43,19 @@ def claim_job(connection: psycopg.Connection, *, library_id=None):
                  SELECT 1 FROM app.library_jobs AS running
                  WHERE running.library_id = job.library_id AND running.status = 'running'
                    AND running.id <> job.id)
+               AND NOT EXISTS (
+                 SELECT 1 FROM app.library_archive_jobs AS archive
+                 WHERE archive.library_id = job.library_id AND archive.status = 'running')
                ORDER BY job.created_at, job.id
                FOR UPDATE OF library, job SKIP LOCKED LIMIT 1""",
             (library_id, library_id),
         ).fetchone()
         if row is None:
+            return None
+        # The original SELECT's MVCC snapshot may predate a concurrent claim.
+        # Recheck with a fresh statement after acquiring the shared library lock.
+        if connection.execute("""SELECT 1 FROM app.library_archive_jobs
+               WHERE library_id=%s AND status='running' LIMIT 1""", (row[1],)).fetchone():
             return None
         connection.execute(
             """UPDATE app.library_jobs SET status = 'running', worker_token = %s,
@@ -288,7 +296,11 @@ def main() -> int:
     options = {"dbname": args.database_name} if args.database_name else {}
     with psycopg.connect(url, connect_timeout=15, **options) as connection:
         while True:
-            worked = run_once(connection, args.data_dir, renew_lease=True, library_id=args.library_id)
+            from routefrom_pipeline.archive_worker import run_once as run_archive_once
+
+            worked = run_archive_once(connection, args.data_dir, renew_lease=True, library_id=args.library_id)
+            if not worked:
+                worked = run_once(connection, args.data_dir, renew_lease=True, library_id=args.library_id)
             if args.once:
                 return 0
             if not worked:

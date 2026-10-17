@@ -23,10 +23,20 @@ export async function POST(request: Request) {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const sha256 = createHash("sha256").update(bytes).digest("hex");
     const sql = getDatabase();
-    const known = await sql`SELECT id FROM app.datasets WHERE user_id = ${user.id}::uuid AND source_sha256 = ${sha256}`;
+    const known = await sql`SELECT id, source_storage, source_object_key FROM app.datasets WHERE user_id = ${user.id}::uuid AND source_sha256 = ${sha256}`;
     let datasetId: string;
     if (known.length) {
       datasetId = String(known[0].id);
+      if (known[0].source_storage !== "local" || !String(known[0].source_object_key).startsWith(`raw/${user.id}/`)) {
+        // A matching canonical/generated or interrupted-restore import is not
+        // yet a retained upload. Preserve the bytes supplied in this request.
+        const key = `raw/${user.id}/${randomUUID()}.csv`;
+        await storePrivateCsv(key, bytes);
+        await sql`UPDATE app.datasets SET source_storage='local', source_object_key=${key},
+          original_filename=${file.name.replace(/[\\/\0]/g, "_").slice(0, 255)}
+          WHERE id=${datasetId}::uuid AND user_id=${user.id}::uuid AND source_sha256=${sha256}
+            AND (source_storage <> 'local' OR source_object_key NOT LIKE ${`raw/${user.id}/%`})`;
+      }
     } else {
       const key = `raw/${user.id}/${randomUUID()}.csv`;
       await storePrivateCsv(key, bytes);

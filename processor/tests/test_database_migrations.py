@@ -18,7 +18,7 @@ class DatabaseMigrationTests(unittest.TestCase):
     def test_migration_numbers_are_contiguous(self) -> None:
         numbers = [int(path.name.split("_", 1)[0]) for path in self.migrations]
 
-        self.assertEqual(numbers, list(range(1, 20)))
+        self.assertEqual(numbers, list(range(1, 21)))
 
     def test_every_migration_parses_as_postgresql(self) -> None:
         for path in self.migrations:
@@ -28,24 +28,38 @@ class DatabaseMigrationTests(unittest.TestCase):
 
     def test_workspace_sql_templates_parse_as_postgresql(self) -> None:
         # Catch reserved-word aliases before they reach a real map request.
-        for name in ("workspace-bootstrap.ts", "workspace-viewport.ts", "workspace-events.ts", "workspace-views.ts", "place-notes.ts"):
+        for name in (
+            "workspace-bootstrap.ts",
+            "workspace-viewport.ts",
+            "workspace-events.ts",
+            "workspace-views.ts",
+            "place-notes.ts",
+        ):
             source = (self.repo_root / "app" / "src" / "server" / name).read_text(encoding="utf-8")
             queries = re.findall(r"(?:sql|getDatabase\(\))`([\s\S]*?)`", source)
             self.assertGreater(len(queries), 0, name)
             for query in queries:
                 with self.subTest(file=name, query=query[:60]):
                     parameters = iter(range(1, 100))
-                    statement = re.sub(r"\$\{[^}]*\}", lambda _: f"${next(parameters)}", query)
+                    statement = re.sub(
+                        r"\$\{[^}]*\}",
+                        lambda _, parameters=parameters: f"${next(parameters)}",
+                        query,
+                    )
                     self.assertGreater(len(parse_sql(statement)), 0)
 
     def test_csv_export_sql_templates_parse_as_postgresql(self) -> None:
-        source = (self.repo_root / "app" / "src" / "server" / "csv-exports.ts").read_text(encoding="utf-8")
+        source = (self.repo_root / "app" / "src" / "server" / "csv-exports.ts").read_text(
+            encoding="utf-8"
+        )
         queries = re.findall(r"`(\s*SELECT[\s\S]*?)`", source)
         self.assertEqual(len(queries), 5)
         for query in queries:
             with self.subTest(query=query[:80]):
                 parameters = iter(range(10, 100))
-                statement = re.sub(r"\$\{[^}]*\}", lambda _: f"${next(parameters)}", query)
+                statement = re.sub(
+                    r"\$\{[^}]*\}", lambda _, parameters=parameters: f"${next(parameters)}", query
+                )
                 self.assertGreater(len(parse_sql(statement)), 0)
 
     def test_algorithm_tables_are_versioned_by_processing_run(self) -> None:
@@ -60,9 +74,7 @@ class DatabaseMigrationTests(unittest.TestCase):
             "mobility_legs",
             "trajectory_variants",
         }
-        combined = "\n".join(
-            path.read_text(encoding="utf-8") for path in self.migrations[6:10]
-        )
+        combined = "\n".join(path.read_text(encoding="utf-8") for path in self.migrations[6:10])
 
         for table in expected_tables:
             with self.subTest(table=table):
@@ -100,9 +112,9 @@ class DatabaseMigrationTests(unittest.TestCase):
         self.assertNotIn("period_key", sql)
 
     def test_activation_requires_successful_import_and_stages(self) -> None:
-        sql = (
-            self.migration_directory / "0005_imports_and_processing_versions.sql"
-        ).read_text(encoding="utf-8")
+        sql = (self.migration_directory / "0005_imports_and_processing_versions.sql").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn("CREATE FUNCTION app.activate_processing_run", sql)
         self.assertIn("status IN ('succeeded', 'skipped')", sql)
@@ -111,9 +123,7 @@ class DatabaseMigrationTests(unittest.TestCase):
 
     def test_workspace_contract_exposes_multi_range_lod_query(self) -> None:
         contract = json.loads(
-            (self.repo_root / "contracts" / "workspace.schema.json").read_text(
-                encoding="utf-8"
-            )
+            (self.repo_root / "contracts" / "workspace.schema.json").read_text(encoding="utf-8")
         )
 
         self.assertIn("ranges", contract["$defs"]["timeSelection"]["properties"])
@@ -126,9 +136,7 @@ class DatabaseMigrationTests(unittest.TestCase):
         )
 
     def test_import_jobs_link_source_imports_to_processing_runs(self) -> None:
-        sql = (
-            self.migration_directory / "0012_import_job_lineage.sql"
-        ).read_text(encoding="utf-8")
+        sql = (self.migration_directory / "0012_import_job_lineage.sql").read_text(encoding="utf-8")
 
         self.assertIn("dataset_import_id uuid", sql)
         self.assertIn("processing_run_id uuid", sql)

@@ -1,4 +1,5 @@
 """Ordered, checksummed SQL migrations on a direct Postgres connection."""
+
 from __future__ import annotations
 
 import argparse
@@ -6,6 +7,7 @@ import hashlib
 import os
 import re
 from pathlib import Path
+from uuid import uuid4
 
 
 def migrate(database_url: str, directory: Path, *, database_name: str | None = None) -> list[str]:
@@ -14,9 +16,16 @@ def migrate(database_url: str, directory: Path, *, database_name: str | None = N
 
     options = {"dbname": database_name} if database_name else {}
     applied: list[str] = []
-    with psycopg.connect(database_url, autocommit=True, **options) as connection:
+    with psycopg.connect(
+        database_url,
+        autocommit=True,
+        connect_timeout=15,
+        application_name=f"routefrom-migrate-{uuid4()}",
+        **options,
+    ) as connection:
         if "-pooler" in (connection.info.host or ""):
             raise ValueError("migrations require a direct connection")
+        connection.execute("SET lock_timeout = '30s'")
         connection.execute("SELECT pg_advisory_lock(726688004)")
         try:
             connection.execute("CREATE SCHEMA IF NOT EXISTS routefrom_meta")
@@ -38,10 +47,16 @@ def migrate(database_url: str, directory: Path, *, database_name: str | None = N
                     continue
                 if not re.search(r"COMMIT;\s*$", content):
                     raise ValueError(f"migration requires a terminal COMMIT: {path.name}")
-                ledger = sql.SQL(
-                    "INSERT INTO routefrom_meta.schema_migrations (filename, sha256) VALUES ({}, {});"
-                ).format(sql.Literal(path.name), sql.Literal(digest)).as_string(connection)
-                script = re.sub(r"COMMIT;\s*$", lambda _, entry=ledger: entry + "\nCOMMIT;", content)
+                ledger = (
+                    sql.SQL(
+                        "INSERT INTO routefrom_meta.schema_migrations (filename, sha256) VALUES ({}, {});"
+                    )
+                    .format(sql.Literal(path.name), sql.Literal(digest))
+                    .as_string(connection)
+                )
+                script = re.sub(
+                    r"COMMIT;\s*$", lambda _, entry=ledger: entry + "\nCOMMIT;", content
+                )
                 try:
                     connection.execute(script, prepare=False)
                 except Exception:
@@ -49,14 +64,16 @@ def migrate(database_url: str, directory: Path, *, database_name: str | None = N
                     raise
                 applied.append(path.name)
         finally:
-            connection.execute("SELECT pg_advisory_unlock(726688004)")
+            if not connection.closed:
+                connection.execute("SELECT pg_advisory_unlock(726688004)")
     return applied
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Apply checksummed RouteFrom SQL migrations.")
-    parser.add_argument("--directory", type=Path,
-                        default=Path(__file__).resolve().parents[3] / "db" / "migrations")
+    parser.add_argument(
+        "--directory", type=Path, default=Path(__file__).resolve().parents[3] / "db" / "migrations"
+    )
     parser.add_argument("--database-name")
     args = parser.parse_args()
     database_url = os.environ.get("DATABASE_URL_DIRECT")

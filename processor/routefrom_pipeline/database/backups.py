@@ -72,7 +72,8 @@ WHERE library.id = %s AND library.user_id = %s
 
 
 def read_backup_snapshot(connection, *, user_id: UUID, library_id: UUID):
-    row = connection.execute(_READ_BACKUP, (library_id, user_id)).fetchone()
+    with connection.transaction():
+        row = connection.execute(_READ_BACKUP, (library_id, user_id)).fetchone()
     if row is None:
         raise BackupError("library was not found for this owner")
     library, sources, files, decision_sets, notes, workspace, views, observations = row
